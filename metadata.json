@@ -1,0 +1,5 @@
+{
+  "name": "RailClearance Sim",
+  "description": "A vehicle curve simulator and throw calculator for railway engineering, visualizing kinematic envelopes and clearance tolerances.",
+  "requestFramePermissions": []
+}
