@@ -256,7 +256,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     }
 
     let globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
-    const TOLERANCE_MM = 1e-4; // Floating point leniency
+    const TOLERANCE_MM = 1e-9; // Floating point leniency
 
     if (fullPoly.length > 0 && studyPoints.length > 0) {
         let hasFail = false;
