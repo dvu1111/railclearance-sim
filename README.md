@@ -46,9 +46,7 @@ The core simulation logic resides in `services/railwayPhysics.ts`. The coordinat
 
 1. **Geometric Throw:** Approximated using the versine formula based on the vehicle's rigid wheelbase ($B$) and overall length ($L$):
 
-   $$
-   Throw \approx \frac{L^2 - B^2}{8R}
-   $$
+   $$Throw \approx \frac{L^2 - B^2}{8R}$$
 
 2. **Translation:** Points are translated laterally by the sum of the calculated throw, lateral play, and track lateral tolerances.
 
