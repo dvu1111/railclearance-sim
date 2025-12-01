@@ -1,34 +1,37 @@
-  - name: GitHub Pages v3
-  # You may pin to the exact commit or the version.
-  # uses: peaceiris/actions-github-pages@b80a30e9bf3c1ec596532c3813f0aff094f555e2
-  uses: peaceiris/actions-github-pages@v3.1.12
-  with:
-    # 
-    deploy_key: # optional
-    # 
-    github_token: # optional
-    # 
-    personal_token: # optional
-    # 
-    publish_branch: # optional, default is gh-pages
-    # 
-    publish_dir: # optional, default is public
-    # 
-    external_repository: # optional
-    # If empty commits should be made to the publication branch
-    allow_empty_commit: # optional, default is false
-    # If existing files in the publish branch should be not removed before deploying
-    keep_files: # optional, default is false
-    # Keep only the latest commit on a GitHub Pages branch
-    force_orphan: # optional, default is false
-    # Set Git user.name
-    user_name: # optional
-    # Set Git user.email
-    user_email: # optional
-    # Set custom commit message
-    commit_message: # optional
-    # Set tag name
-    tag_name: # optional
-    # Set tag message
-    tag_message: # optional
-          
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main  # Set this to 'master' if your default branch is master
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # We pass the secret here so Vite can replace process.env.GEMINI_API_KEY during the build
+      - name: Build
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: npm run build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-github-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
