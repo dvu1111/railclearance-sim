@@ -113,7 +113,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                     legendgroup: 'delta_env',
                     showlegend: idx === 0,
                     hoverinfo: 'text',
-                    text: `Δ Env: ${dist.toFixed(1)}mm`
+                    text: `Δ Env: ${dist.toFixed(2)}mm`
                 });
             }
 
@@ -129,7 +129,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                     legendgroup: 'delta_static',
                     showlegend: idx === 0,
                     hoverinfo: 'text',
-                    text: `Δ Static: ${dist.toFixed(1)}mm`
+                    text: `Δ Static: ${dist.toFixed(2)}mm`
                 });
             }
 
@@ -149,8 +149,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             });
 
             // C. Text Labels
-            const valStatic = sp.rotStaticX !== null ? Math.abs(sp.p.x - sp.rotStaticX).toFixed(1) : '-';
-            const valEnv = sp.envX !== null ? Math.abs(sp.p.x - sp.envX).toFixed(1) : '-';
+            const valStatic = sp.rotStaticX !== null ? Math.abs(sp.p.x - sp.rotStaticX).toFixed(2) : '-';
+            const valEnv = sp.envX !== null ? Math.abs(sp.p.x - sp.envX).toFixed(2) : '-';
 
             // Calculate anchor X (outermost point) to avoid overlapping the line
             let textAnchorX = sp.p.x;
