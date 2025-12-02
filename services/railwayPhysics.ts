@@ -169,7 +169,8 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
                 // 2. Rotated Static (Visualization of Nominal Cant)
                 const rotS = getRotatedCoords(p.x, p.y, staticLeanAngle, PIVOT_POINT.x, PIVOT_POINT.y);
                 polyCoords[side].rot_static_x.push(rotS.x + stdLatShift);
-                polyCoords[side].rot_static_y.push(p.y);
+                // Apply Y-rotation to visualization if enabled, otherwise use original Y
+                polyCoords[side].rot_static_y.push(params.considerYRotation ? rotS.y : p.y);
 
                 // 3. Dynamic Calculation
                 // A. Pre-Rotation Translation (Throw + Tolerance)
@@ -190,7 +191,8 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
                 // C. Post-Rotation Translation
                 const final_x = rot.x + stdLatShift;
-                const final_y = y_pre; 
+                // If flag is enabled, use the rotated Y coordinate. Otherwise maintain constant Y (legacy).
+                const final_y = params.considerYRotation ? rot.y : y_pre; 
 
                 polyCoords[side].x.push(final_x);
                 polyCoords[side].y.push(final_y);
@@ -241,9 +243,12 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
         // C. Post-Rotation
         const x_final = p_rot.x + stdLatShift;
+        // Apply Y-rotation to study points if enabled
+        const final_y_sp = params.considerYRotation ? p_rot.y : y_pos;
 
         // --- Calculate Deltas for Analysis ---
-        const y_check = y_pos;
+        // If Y-Rotation is enabled, we need to check the envelopes at the NEW height of the point
+        const y_check = final_y_sp;
         
         const rotStaticPts = polyCoords[side].rot_static_x.map((x, i) => ({ x: x, y: polyCoords[side].rot_static_y[i] }));
         const rotStaticX = getXAtY(y_check, rotStaticPts, side);
@@ -255,7 +260,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const envX = getXAtY(y_check, envPts, side);
 
         studyPoints.push({
-            p: { x: x_final, y: y_pos },
+            p: { x: x_final, y: final_y_sp },
             side,
             throwType: ptThrowType,
             rotStaticX,

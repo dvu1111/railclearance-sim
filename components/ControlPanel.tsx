@@ -286,6 +286,17 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams }) => {
                 title="Apply bounce only to points above this Y height"
               />
           </div>
+          {/* New Checkbox for Y-Rotation */}
+          <div className="flex items-center gap-2 px-1 pt-2">
+              <input
+                  type="checkbox"
+                  id="chkYRotation"
+                  checked={params.considerYRotation}
+                  onChange={(e) => handleChange('considerYRotation', e.target.checked)}
+                  className="w-4 h-4 cursor-pointer"
+              />
+              <label htmlFor="chkYRotation" className="text-xs font-bold text-gray-700 cursor-pointer select-none">Consider Y-Rotation</label>
+          </div>
       </div>
       
       <div className="mt-4 text-xs text-gray-400 text-center">

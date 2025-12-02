@@ -26,7 +26,8 @@ const App: React.FC = () => {
         roll: 0, //def: 1.25
         latPlay: 0, //def 43
         bounce: 0, //def 50
-        bounceYThreshold: 535
+        bounceYThreshold: 535,
+        considerYRotation: false // Default to false (legacy behavior)
     });
 
     const simulationResult = useMemo(() => {
