@@ -42,8 +42,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             name: 'Dynamic Envelope',
             type: 'scatter',
             mode: 'lines',
-            hoveron: 'fills',
-            hoverinfo: 'name'
+            hoveron: 'points',
+            hovertemplate: '<b>Dynamic Envelope</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>'
         });
 
         // --- 2. Rotated Static (Ghost) ---
@@ -65,7 +65,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 name: 'Rotated Static',
                 type: 'scatter',
                 mode: 'lines',
-                hoverinfo: 'name'
+                hoveron: 'points',
+                hovertemplate: '<b>Rotated Static</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>'
             });
         }
 
@@ -78,7 +79,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             type: 'scatter',
             mode: 'lines',
             legendgroup: 'static',
-            showlegend: true
+            showlegend: true,
+            hovertemplate: '<b>Original Static</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>'
         });
         traces.push({
             x: data.polygons.right.static_x,
@@ -88,7 +90,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             type: 'scatter',
             mode: 'lines',
             legendgroup: 'static',
-            showlegend: false
+            showlegend: false,
+            hovertemplate: '<b>Original Static</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>'
         });
 
         // --- 4. Study Points and Measurements ---
@@ -186,7 +189,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             y: [data.pivot.y],
             mode: 'markers',
             marker: { size: 12, color: 'black', symbol: 'x' },
-            name: 'Pivot Center'
+            name: 'Pivot Center',
+            hovertemplate: '<b>Pivot Center</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>'
         });
 
         // --- Layout ---
@@ -200,7 +204,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             showlegend: true,
             legend: { orientation: 'h', y: -0.15, x: 0.5, xanchor: 'center' },
             xaxis: {
-                title: 'Lateral Position (mm)',
+                title: { text: 'Lateral Position (mm)' },
                 scaleanchor: 'y', // Lock Aspect Ratio 1:1
                 scaleratio: 1,
                 zeroline: true,
@@ -209,7 +213,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 zerolinecolor: '#9ca3af'
             },
             yaxis: {
-                title: 'Height (mm)',
+                title: { text: 'Height (mm)' },
                 zeroline: true,
                 showgrid: true,
                 gridcolor: '#e5e7eb',
