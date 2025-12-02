@@ -49,9 +49,13 @@ export interface SimulationParams {
 
   // Dynamics
   roll: number; // degrees
+  appliedCant: number; // mm
   latPlay: number; // mm
   bounce: number; // mm
   bounceYThreshold: number; // mm
+  
+  // Calculation Settings
+  considerYRotation: boolean; // New flag for Y-rotation
 }
 
 export interface StudyPointResult {
@@ -82,6 +86,7 @@ export interface SimulationResult {
   calculatedParams: {
     rollUsed: number;
     cantTolUsed: number;
+    appliedCantUsed: number;
     tolLatShift: number;
   };
   pivot: Point;

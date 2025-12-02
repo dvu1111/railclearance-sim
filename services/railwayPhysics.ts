@@ -68,17 +68,31 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const PIVOT_POINT: Point = { x: 0, y: outlineData.h_roll || 1100 };
     const rawPoints = outlineData.points;
 
-    // Tolerance Processing
+    // 1. Calculations - Tolerances
     let tolLatShift = 0;
     let cantTolAngleDeg = 0;
     let bounce = params.bounce;
 
     if (params.enableTolerances) {
         bounce += params.tol_vert;
-        const cantAngleRad = params.tol_cant / 1137; // Standard gauge constant roughly
-        cantTolAngleDeg = degrees(cantAngleRad);
+        
+        // Cant Tolerance (Uncertainty) - Always Widens Envelope
+        // Converted from mm using roughly 1137mm gauge center
+        const cantTolRad = params.tol_cant / 1137; 
+        cantTolAngleDeg = degrees(cantTolRad);
+        
         tolLatShift = params.tol_lat + params.tol_gw;
     }
+
+    // 2. Calculations - Applied Cant (Deterministic Bias)
+    // Affects the whole vehicle body lean based on track banking
+    const appliedCantRad = params.appliedCant / 1137;
+    const appliedCantDeg = degrees(appliedCantRad);
+    
+    // Determine Bias Direction
+    // If CW (Right Turn): Left rail high -> Tilt Right (Negative Angle)
+    // If CCW (Left Turn): Right rail high -> Tilt Left (Positive Angle)
+    const cantBiasAngle = isCW ? -appliedCantDeg : appliedCantDeg;
 
     // Kinematic Throws
     let calc_ET = 0, calc_CT = 0;
@@ -98,19 +112,19 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     };
 
     // Roll Logic
+    // Start with Dynamic Roll Limits (+/- Body Roll)
     let rollLeftAngle = Math.abs(params.roll);
     let rollRightAngle = -Math.abs(params.roll);
 
-    if (isCW) {
-        // Right turn: Track banked right. Subtract cant from negative roll (more tilt right)
-        rollRightAngle -= cantTolAngleDeg;
-    } else {
-        // Left turn: Track banked left. Add cant to positive roll (more tilt left)
-        rollLeftAngle += cantTolAngleDeg;
-    }
+    // Apply Deterministic Cant Bias (Shift both limits)
+    rollLeftAngle += cantBiasAngle;
+    rollRightAngle += cantBiasAngle;
 
-    // Static lean angle for visualization
-    const staticLeanAngle = isCW ? -cantTolAngleDeg : cantTolAngleDeg;
+    // Apply Cant Tolerance (Widen both limits)
+    // Extend Left limit more Left (Positive)
+    // Extend Right limit more Right (Negative)
+    rollLeftAngle += cantTolAngleDeg;
+    rollRightAngle -= cantTolAngleDeg;
 
     // Process Left and Right sides of the vehicle outline
     (['right', 'left'] as const).forEach(side => {
@@ -127,6 +141,13 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
         const stdLatShift = (side === 'right') ? params.latPlay : -params.latPlay;
         const preRotTolShift = (side === 'right') ? tolLatShift : -tolLatShift;
+
+        // Static lean angle for visualization
+        // Apply roll to widen both sides:
+        // Left side -> Rotate CCW (Positive)
+        // Right side -> Rotate CW (Negative)
+        const sideRoll = (side === 'left') ? Math.abs(params.roll) : -Math.abs(params.roll);
+        const staticLeanAngle = cantBiasAngle + sideRoll;
 
         // Iterate through outline segments
         for (let i = 0; i < rawPoints.length - 1; i++) {
@@ -149,10 +170,11 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
                 polyCoords[side].static_x.push(p.x);
                 polyCoords[side].static_y.push(p.y);
 
-                // 2. Rotated Static (Visualization only)
+                // 2. Rotated Static (Visualization of Nominal Cant + Roll)
                 const rotS = getRotatedCoords(p.x, p.y, staticLeanAngle, PIVOT_POINT.x, PIVOT_POINT.y);
                 polyCoords[side].rot_static_x.push(rotS.x + stdLatShift);
-                polyCoords[side].rot_static_y.push(p.y);
+                // Apply Y-rotation to visualization if enabled, otherwise use original Y
+                polyCoords[side].rot_static_y.push(params.considerYRotation ? rotS.y : p.y);
 
                 // 3. Dynamic Calculation
                 // A. Pre-Rotation Translation (Throw + Tolerance)
@@ -164,16 +186,19 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
                 const rotOpt2 = getRotatedCoords(x_pre, y_pre, rollRightAngle, PIVOT_POINT.x, PIVOT_POINT.y);
 
                 let rot: Point;
-                // Maximize OUTWARD excursion
+                // Match Static Visualization Logic: Use side-specific rotation angle
+                // Left Side -> Left Roll (rotOpt1)
+                // Right Side -> Right Roll (rotOpt2)
                 if (side === 'right') {
-                    rot = (rotOpt1.x > rotOpt2.x) ? rotOpt1 : rotOpt2;
+                    rot = rotOpt2;
                 } else {
-                    rot = (rotOpt1.x < rotOpt2.x) ? rotOpt1 : rotOpt2;
+                    rot = rotOpt1;
                 }
 
                 // C. Post-Rotation Translation
                 const final_x = rot.x + stdLatShift;
-                const final_y = y_pre; 
+                // If flag is enabled, use the rotated Y coordinate. Otherwise maintain constant Y (legacy).
+                const final_y = params.considerYRotation ? rot.y : y_pre; 
 
                 polyCoords[side].x.push(final_x);
                 polyCoords[side].y.push(final_y);
@@ -216,17 +241,21 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const p_r2 = getRotatedCoords(x_raw, y_pos, rollRightAngle, PIVOT_POINT.x, PIVOT_POINT.y);
 
         let p_rot: Point;
+        // Match Static Visualization Logic: Use side-specific rotation angle
         if (side === 'right') {
-            p_rot = (p_r1.x > p_r2.x) ? p_r1 : p_r2;
+            p_rot = p_r2;
         } else {
-            p_rot = (p_r1.x < p_r2.x) ? p_r1 : p_r2;
+            p_rot = p_r1;
         }
 
         // C. Post-Rotation
         const x_final = p_rot.x + stdLatShift;
+        // Apply Y-rotation to study points if enabled
+        const final_y_sp = params.considerYRotation ? p_rot.y : y_pos;
 
         // --- Calculate Deltas for Analysis ---
-        const y_check = y_pos;
+        // If Y-Rotation is enabled, we need to check the envelopes at the NEW height of the point
+        const y_check = final_y_sp;
         
         const rotStaticPts = polyCoords[side].rot_static_x.map((x, i) => ({ x: x, y: polyCoords[side].rot_static_y[i] }));
         const rotStaticX = getXAtY(y_check, rotStaticPts, side);
@@ -238,7 +267,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const envX = getXAtY(y_check, envPts, side);
 
         studyPoints.push({
-            p: { x: x_final, y: y_pos },
+            p: { x: x_final, y: final_y_sp },
             side,
             throwType: ptThrowType,
             rotStaticX,
@@ -256,8 +285,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     }
 
     let globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
-    const TOLERANCE_MM = 1e-9; // Floating point leniency
-
+    
     if (fullPoly.length > 0 && studyPoints.length > 0) {
         let hasFail = false;
         let hasBoundary = false;
@@ -267,7 +295,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             
             if (sp.envX !== null) {
                 const dist = Math.abs(sp.p.x - sp.envX);
-                if (dist <= 0.5) { // Visual tolerance of 0.5mm
+                if (dist <= 1e-9) { // Visual tolerance of 1e-9mm
                     hasBoundary = true;
                     isLocalBoundary = true;
                 }
@@ -285,6 +313,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         calculatedParams: {
             rollUsed: params.roll,
             cantTolUsed: cantTolAngleDeg,
+            appliedCantUsed: appliedCantDeg,
             tolLatShift
         },
         pivot: PIVOT_POINT

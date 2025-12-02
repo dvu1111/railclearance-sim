@@ -22,10 +22,12 @@ const App: React.FC = () => {
         tol_vert: 25,
         tol_cant: 10, 
         tol_gw: 25,
+        appliedCant: 0, // Default 0mm (Flat track)
         roll: 0, //def: 1.25
         latPlay: 0, //def 43
         bounce: 0, //def 50
-        bounceYThreshold: 535
+        bounceYThreshold: 535,
+        considerYRotation: false // Default to false (legacy behavior)
     });
 
     const simulationResult = useMemo(() => {
