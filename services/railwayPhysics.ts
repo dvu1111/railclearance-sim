@@ -295,7 +295,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             
             if (sp.envX !== null) {
                 const dist = Math.abs(sp.p.x - sp.envX);
-                if (dist <= 1e-9) { // Visual tolerance of 1e-9mm
+                if (dist <= 1e-9) { // Updated tolerance from 0.5 to 1e-9
                     hasBoundary = true;
                     isLocalBoundary = true;
                 }
