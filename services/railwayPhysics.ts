@@ -1,5 +1,6 @@
 import { OUTLINE_DATA_SETS } from "../constants";
 import { Point, SimulationParams, SimulationResult, StudyPointResult, PolyCoords } from "../types";
+import { Clipper, FillRule, ClipType, Path64, Point64 } from "../lib/clipper2-ts";
 
 // --- Math Helpers ---
 function radians(deg: number) { return deg * Math.PI / 180; }
@@ -19,17 +20,25 @@ function getRotatedCoords(x: number, y: number, angleDeg: number, cx: number, cy
 
 // Linear interpolation to find X at a given Y
 function getXAtY(targetY: number, polyPoints: Point[], side: 'right' | 'left' = 'right'): number | null {
+    if (polyPoints.length < 2) return null;
+    
     const intersections: number[] = [];
-    for (let i = 0; i < polyPoints.length - 1; i++) {
+    // Handle closed loop: ensure we check the segment from last point back to first
+    const len = polyPoints.length;
+    
+    for (let i = 0; i < len; i++) {
         const p1 = polyPoints[i];
-        const p2 = polyPoints[i + 1];
+        const p2 = polyPoints[(i + 1) % len]; // Wrap around
 
         const y1 = p1.y, y2 = p2.y;
         const x1 = p1.x, x2 = p2.x;
 
         if ((y1 <= targetY && targetY <= y2) || (y2 <= targetY && targetY <= y1)) {
             if (y1 === y2) {
-                intersections.push(x1, x2);
+                // Horizontal line at target Y, ignore to avoid infinite intersections or pick ends
+                if (y1 === targetY) {
+                    intersections.push(x1, x2);
+                }
             } else {
                 const slope = (x2 - x1) / (y2 - y1);
                 const x = x1 + (targetY - y1) * slope;
@@ -38,6 +47,14 @@ function getXAtY(targetY: number, polyPoints: Point[], side: 'right' | 'left' = 
         }
     }
     if (intersections.length === 0) return null;
+    
+    // For 'right' side analysis, we usually want the max X.
+    // For 'left' side analysis, we usually want the min X.
+    // However, if we are analyzing a full polygon envelope (Clipper result), 
+    // we want the intersection closest to the side of interest relative to the center?
+    // Actually, for Rail Clearance:
+    // Right Side Study Point (x > 0): We care about the Envelope Max X.
+    // Left Side Study Point (x < 0): We care about the Envelope Min X.
     return side === 'right' ? Math.max(...intersections) : Math.min(...intersections);
 }
 
@@ -53,6 +70,17 @@ function pointInPolygon(point: Point, vs: Point[]) {
         if (intersect) inside = !inside;
     }
     return inside;
+}
+
+// --- Clipper Helpers ---
+const SCALE = 1000; // Preserve 3 decimal places
+
+function toPath64(points: Point[]): Path64 {
+    return points.map(p => ({ x: Math.round(p.x * SCALE), y: Math.round(p.y * SCALE) }));
+}
+
+function fromPath64(path: Path64): Point[] {
+    return path.map(p => ({ x: p.x / SCALE, y: p.y / SCALE }));
 }
 
 // --- Main Simulation Function ---
@@ -126,6 +154,10 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     rollLeftAngle += cantTolAngleDeg;
     rollRightAngle -= cantTolAngleDeg;
 
+    // Temporary storage for Clipper-based construction
+    const rightSidePreRot: Point[] = [];
+    const leftSidePreRot: Point[] = [];
+
     // Process Left and Right sides of the vehicle outline
     (['right', 'left'] as const).forEach(side => {
         const xMult = (side === 'right') ? 1 : -1;
@@ -143,9 +175,6 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const preRotTolShift = (side === 'right') ? tolLatShift : -tolLatShift;
 
         // Static lean angle for visualization
-        // Apply roll to widen both sides:
-        // Left side -> Rotate CCW (Positive)
-        // Right side -> Rotate CW (Negative)
         const sideRoll = (side === 'left') ? Math.abs(params.roll) : -Math.abs(params.roll);
         const staticLeanAngle = cantBiasAngle + sideRoll;
 
@@ -170,10 +199,9 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
                 polyCoords[side].static_x.push(p.x);
                 polyCoords[side].static_y.push(p.y);
 
-                // 2. Rotated Static (Visualization of Nominal Cant + Roll)
+                // 2. Rotated Static (Visualization)
                 const rotS = getRotatedCoords(p.x, p.y, staticLeanAngle, PIVOT_POINT.x, PIVOT_POINT.y);
                 polyCoords[side].rot_static_x.push(rotS.x + stdLatShift);
-                // Apply Y-rotation to visualization if enabled, otherwise use original Y
                 polyCoords[side].rot_static_y.push(params.considerYRotation ? rotS.y : p.y);
 
                 // 3. Dynamic Calculation
@@ -181,30 +209,101 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
                 const x_pre = p.x + (throwVal * xMult) + preRotTolShift;
                 const y_pre = p.y + p.bounceOffset;
 
-                // B. Rotation - Calculate BOTH extremes to find envelope
-                const rotOpt1 = getRotatedCoords(x_pre, y_pre, rollLeftAngle, PIVOT_POINT.x, PIVOT_POINT.y);
-                const rotOpt2 = getRotatedCoords(x_pre, y_pre, rollRightAngle, PIVOT_POINT.x, PIVOT_POINT.y);
-
-                let rot: Point;
-                // Match Static Visualization Logic: Use side-specific rotation angle
-                // Left Side -> Left Roll (rotOpt1)
-                // Right Side -> Right Roll (rotOpt2)
-                if (side === 'right') {
-                    rot = rotOpt2;
-                } else {
-                    rot = rotOpt1;
+                // Collect points for Clipper construction (un-rotated but translated/bounced)
+                if (params.considerYRotation) {
+                    if (side === 'right') rightSidePreRot.push({ x: x_pre, y: y_pre });
+                    else leftSidePreRot.push({ x: x_pre, y: y_pre });
                 }
 
-                // C. Post-Rotation Translation
-                const final_x = rot.x + stdLatShift;
-                // If flag is enabled, use the rotated Y coordinate. Otherwise maintain constant Y (legacy).
-                const final_y = params.considerYRotation ? rot.y : y_pre; 
+                // Legacy Logic: Calculate vertex-based envelope immediately
+                if (!params.considerYRotation) {
+                    const rotOpt1 = getRotatedCoords(x_pre, y_pre, rollLeftAngle, PIVOT_POINT.x, PIVOT_POINT.y);
+                    const rotOpt2 = getRotatedCoords(x_pre, y_pre, rollRightAngle, PIVOT_POINT.x, PIVOT_POINT.y);
 
-                polyCoords[side].x.push(final_x);
-                polyCoords[side].y.push(final_y);
+                    let rot: Point;
+                    // Legacy: Use side-specific rotation angle for that side's envelope boundary
+                    if (side === 'right') {
+                        rot = rotOpt2;
+                    } else {
+                        rot = rotOpt1;
+                    }
+
+                    const final_x = rot.x + stdLatShift;
+                    // Legacy usually keeps Y constant, but if Y-Rot flag is off, it uses y_pre
+                    polyCoords[side].x.push(final_x);
+                    polyCoords[side].y.push(y_pre); 
+                }
             });
         }
     });
+
+    // --- Clipper Union Logic (New) ---
+    if (params.considerYRotation) {
+        // 1. Construct the full "Pre-Rotated" Vehicle Polygon
+        //    Right side points + Reversed Left side points (to make a closed loop)
+        const fullPreRotPoly = [...rightSidePreRot, ...leftSidePreRot.reverse()];
+
+        // 2. Create the two rotated states of the entire vehicle
+        const polyLeftRoll = fullPreRotPoly.map(p => 
+            getRotatedCoords(p.x, p.y, rollLeftAngle, PIVOT_POINT.x, PIVOT_POINT.y)
+        );
+        const polyRightRoll = fullPreRotPoly.map(p => 
+            getRotatedCoords(p.x, p.y, rollRightAngle, PIVOT_POINT.x, PIVOT_POINT.y)
+        );
+
+        // 3. Apply Lateral Play (Shift)
+        //    The legacy logic applies +latPlay to Right Roll and -latPlay to Left Roll envelope?
+        //    Legacy: "rotS.x + stdLatShift". 
+        //    Right side uses +latPlay. Left side uses -latPlay.
+        //    
+        //    Correction: In a curve, the lateral play acts in the direction of the force.
+        //    Usually we simulate the vehicle shifting fully to the outside.
+        //    
+        //    For simplicity and matching legacy behavior: 
+        //    The envelope is the Union of (Vehicle Leaning Left shifted Left) and (Vehicle Leaning Right shifted Right).
+        //    Wait, usually we want the worst case excursion.
+        //    If we are curving Right (CW): 
+        //      Left side (Outer) is critical -> Leaning Left (away from center) + Shift Left.
+        //      Right side (Inner) is critical -> Leaning Right (towards center) + Shift Right.
+        
+        //    Let's stick to the parameters derived:
+        //    Left Roll Angle was calculated with tolerances.
+        //    Right Roll Angle was calculated with tolerances.
+        
+        //    We need to shift the Left-Rotated shape by -latPlay (Left)
+        //    We need to shift the Right-Rotated shape by +latPlay (Right)
+        
+        const polyLeftFinal = polyLeftRoll.map(p => ({ x: p.x - params.latPlay, y: p.y }));
+        const polyRightFinal = polyRightRoll.map(p => ({ x: p.x + params.latPlay, y: p.y }));
+
+        // 4. Clipper Union
+        const pathL = toPath64(polyLeftFinal);
+        const pathR = toPath64(polyRightFinal);
+        
+        // Clipper.union returns Paths64 (array of paths)
+        const solutionPaths = Clipper.union([pathL], [pathR], FillRule.NonZero);
+
+        // 5. Map back to PolyCoords
+        //    We put the entire solution into the 'left' side array for the visualizer.
+        //    The visualizer draws `left` then `reversed(right)`. 
+        //    If we leave `right` empty, it draws `left` as a loop.
+        
+        polyCoords.left.x = [];
+        polyCoords.left.y = [];
+        polyCoords.right.x = [];
+        polyCoords.right.y = [];
+
+        // Flatten all result paths (if multiple islands, this simply connects them, which is acceptable for vis)
+        for (const path of solutionPaths) {
+            const points = fromPath64(path);
+            points.forEach(p => {
+                polyCoords.left.x.push(p.x);
+                polyCoords.left.y.push(p.y);
+            });
+            // Close the visual loop if multiple paths exist, or just rely on Visualizer closing it
+            // Ideally a vehicle envelope is one polygon.
+        }
+    }
 
     // --- Study Points Logic ---
     // Calculate effective height for bounce scaling
@@ -254,7 +353,6 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const final_y_sp = params.considerYRotation ? p_rot.y : y_pos;
 
         // --- Calculate Deltas for Analysis ---
-        // If Y-Rotation is enabled, we need to check the envelopes at the NEW height of the point
         const y_check = final_y_sp;
         
         const rotStaticPts = polyCoords[side].rot_static_x.map((x, i) => ({ x: x, y: polyCoords[side].rot_static_y[i] }));
@@ -263,7 +361,17 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const origStaticPts = polyCoords[side].static_x.map((x, i) => ({ x: x, y: polyCoords[side].static_y[i] }));
         const origStaticX = getXAtY(y_check, origStaticPts, side);
 
-        const envPts = polyCoords[side].x.map((x, i) => ({ x: x, y: polyCoords[side].y[i] }));
+        // Env Check: If Y-Rot is on, the full envelope is in polyCoords.left
+        // If Y-Rot is off, we use the specific side's array.
+        let envPts: Point[];
+        if (params.considerYRotation) {
+             // Use the full unioned polygon in 'left'
+             envPts = polyCoords.left.x.map((x, i) => ({ x: x, y: polyCoords.left.y[i] }));
+        } else {
+             // Legacy split arrays
+             envPts = polyCoords[side].x.map((x, i) => ({ x: x, y: polyCoords[side].y[i] }));
+        }
+        
         const envX = getXAtY(y_check, envPts, side);
 
         studyPoints.push({
@@ -279,9 +387,16 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     // --- Global Pass/Fail ---
     // Construct full polygon for "Point In Polygon" test
     const fullPoly: Point[] = [];
-    polyCoords.left.x.forEach((x, i) => fullPoly.push({ x: x, y: polyCoords.left.y[i] }));
-    for (let i = polyCoords.right.x.length - 1; i >= 0; i--) {
-        fullPoly.push({ x: polyCoords.right.x[i], y: polyCoords.right.y[i] });
+    
+    if (params.considerYRotation) {
+        // If using clipper, 'left' already contains the full closed polygon
+        polyCoords.left.x.forEach((x, i) => fullPoly.push({ x: x, y: polyCoords.left.y[i] }));
+    } else {
+        // Legacy: construct from left/right strips
+        polyCoords.left.x.forEach((x, i) => fullPoly.push({ x: x, y: polyCoords.left.y[i] }));
+        for (let i = polyCoords.right.x.length - 1; i >= 0; i--) {
+            fullPoly.push({ x: polyCoords.right.x[i], y: polyCoords.right.y[i] });
+        }
     }
 
     let globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
