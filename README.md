@@ -1,6 +1,6 @@
 # RailClearance Sim
 
-**RailClearance Sim** is a specialized engineering simulation tool designed to compute and visualize the kinematic envelope of rail vehicles negotiating horizontal curves. The application provides real-time analysis of geometric overthrows, dynamic body movements, and clearance tolerances, enabling rapid assessment of vehicle-structure gauging compliance.
+**RailClearance Sim** is a simulation tool designed to compute and visualize the kinematic envelope of rail vehicles negotiating horizontal curves. The application provides real-time analysis of geometric overthrows, dynamic body movements, and clearance tolerances, enabling rapid assessment of vehicle-structure gauging compliance.
 
 ## Overview
 
