@@ -20,11 +20,12 @@ const App: React.FC = () => {
         radiusScenario: 'gt_1000',
         tol_lat: 25,
         tol_vert: 25,
-        tol_cant: 10,
+        tol_cant: 10, 
         tol_gw: 25,
-        roll: 1.25,
-        latPlay: 43,
-        bounce: 50,
+        appliedCant: 0, // Default 0mm (Flat track)
+        roll: 0, //def: 1.25
+        latPlay: 0, //def 43
+        bounce: 0, //def 50
         bounceYThreshold: 535
     });
 

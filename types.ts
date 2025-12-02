@@ -49,6 +49,7 @@ export interface SimulationParams {
 
   // Dynamics
   roll: number; // degrees
+  appliedCant: number; // mm (New field)
   latPlay: number; // mm
   bounce: number; // mm
   bounceYThreshold: number; // mm
@@ -82,6 +83,7 @@ export interface SimulationResult {
   calculatedParams: {
     rollUsed: number;
     cantTolUsed: number;
+    appliedCantUsed: number;
     tolLatShift: number;
   };
   pivot: Point;

@@ -44,9 +44,12 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams }) => {
     <div className="h-full overflow-y-auto p-4 bg-gray-50 border-r border-gray-200 shadow-sm text-sm">
       <h1 className="text-xl font-bold mb-4 text-gray-900">Input Parameters</h1>
 
-      {/* Radius */}
+      {/* Geometry Section */}
       <div className="bg-white border border-gray-300 p-2 mb-4 rounded">
-        <div className="flex items-center gap-2">
+        <div className="font-bold text-gray-800 mb-2 border-b border-gray-200 pb-1">Track Geometry</div>
+        
+        {/* Radius */}
+        <div className="flex items-center gap-2 mb-2">
           <span className="font-bold mr-auto text-gray-700">Radius (R) [m]</span>
           <input
             type="number"
@@ -55,10 +58,23 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams }) => {
             className="border border-gray-300 rounded px-2 py-1 w-24 text-right focus:border-blue-500 outline-none"
           />
         </div>
+
+        {/* Applied Cant */}
+        <div className="flex items-center gap-2">
+          <span className="font-bold mr-auto text-gray-700">Applied Cant [mm]</span>
+          <input
+            type="number"
+            value={params.appliedCant}
+            onChange={(e) => handleChange('appliedCant', parseFloat(e.target.value))}
+            className="border border-blue-300 bg-blue-50 rounded px-2 py-1 w-24 text-right focus:border-blue-500 outline-none font-bold text-blue-900"
+            title="Design superelevation of the track"
+          />
+        </div>
       </div>
 
       {/* Vehicle Dims */}
       <div className="bg-white border border-gray-300 p-2 mb-4 rounded space-y-2">
+        <div className="font-bold text-gray-800 mb-2 border-b border-gray-200 pb-1">Vehicle Dimensions</div>
         <div className="flex items-center gap-2">
           <div className="flex-1 flex items-center gap-1">
             <label className="font-bold text-gray-500 w-12 text-right">L_veh</label>
@@ -233,6 +249,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams }) => {
 
       {/* Dynamics */}
       <div className="bg-white border border-gray-300 p-2 mb-4 rounded">
+          <div className="font-bold text-gray-800 mb-2 border-b border-gray-200 pb-1">Dynamics</div>
           <div className="flex justify-between mb-2 px-2 text-xs font-bold text-gray-500">
               <span className="w-20 text-center">Roll (deg)</span>
               <span className="w-20 text-center">Lat (mm)</span>
