@@ -278,49 +278,56 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const h_bounced = params.h + ((params.h - minY) / vHeight) * bounce; 
 
     (['right', 'left'] as const).forEach(side => {
-        const xMult = (side === 'right') ? 1 : -1;
+        const isRight = side === 'right';
+        const xMult = isRight ? 1 : -1;
         
-        let vehThrow = 0;
+        // Base point (static position)
+        const x_base = params.w / 2 * xMult;
+        
+        // Determine Throw Type for label
         let throwType = '';
         if (isCW) {
-            vehThrow = (side === 'left') ? (Math.pow(params.L_veh, 2) - Math.pow(params.B_veh, 2)) / (8 * R_mm) : Math.pow(params.B_veh, 2) / (8 * R_mm);
-            throwType = (side === 'left') ? 'ET' : 'CT';
+            // Right Turn (CW): Right Side = Inner (CT), Left Side = Outer (ET)
+            throwType = isRight ? 'CT' : 'ET';
         } else {
-            vehThrow = (side === 'left') ? Math.pow(params.B_veh, 2) / (8 * R_mm) : (Math.pow(params.L_veh, 2) - Math.pow(params.B_veh, 2)) / (8 * R_mm);
-            throwType = (side === 'left') ? 'CT' : 'ET';
+            // Left Turn (CCW): Right Side = Outer (ET), Left Side = Inner (CT)
+            throwType = isRight ? 'ET' : 'CT';
         }
 
-        const studyShift = (side === 'right') ? params.latPlay : -params.latPlay;
-        const tolShift = (side === 'right') ? tolLatShift : -tolLatShift;
+        // Geometric Throw Shift (matches envelope logic)
+        const geomThrowShift = isRight ? throwShiftRight : throwShiftLeft;
+
+        // Calculate Position for BOTH dynamic states to find the critical one
         
-        // OLD LOGIC (Applying throw then rotation)
-        // const x_raw = (params.w / 2 * xMult) + (vehThrow * xMult) + tolShift;
-        // const y_pos = h_bounced;
-        // const rotAngle = (side === 'right') ? rollRightAngle : rollLeftAngle;
-        // const p_rot = getRotatedCoords(x_raw, y_pos, rotAngle, PIVOT_POINT.x, PIVOT_POINT.y);
-        // const final_sp_x = p_rot.x + studyShift;
-        // const final_sp_y = params.considerYRotation ? p_rot.y : y_pos;
+        // Case 1: Leaned Left (Left Roll, Left Shift)
+        const p_rot_1 = getRotatedCoords(x_base, h_bounced, rollLeftAngle, PIVOT_POINT.x, PIVOT_POINT.y);
+        const x_1 = p_rot_1.x + latShiftLeft + geomThrowShift;
+        const y_1 = params.considerYRotation ? p_rot_1.y : h_bounced;
 
-        // NEW LOGIC: Base Point -> Rotate -> Linear Add (Throw + Tol + Play)
-        const x_base = (params.w / 2 * xMult);
-        const y_pos = h_bounced;
+        // Case 2: Leaned Right (Right Roll, Right Shift)
+        const p_rot_2 = getRotatedCoords(x_base, h_bounced, rollRightAngle, PIVOT_POINT.x, PIVOT_POINT.y);
+        const x_2 = p_rot_2.x + latShiftRight + geomThrowShift;
+        const y_2 = params.considerYRotation ? p_rot_2.y : h_bounced;
 
-        const rotAngle = (side === 'right') ? rollRightAngle : rollLeftAngle;
-        const p_rot = getRotatedCoords(x_base, y_pos, rotAngle, PIVOT_POINT.x, PIVOT_POINT.y);
-        
-        const linearOffset = (vehThrow * xMult) + tolShift + studyShift;
-        const final_sp_x = p_rot.x + linearOffset;
-        const final_sp_y = params.considerYRotation ? p_rot.y : y_pos;
+        // Select Critical Point (Max Excursion)
+        let final_sp_p: Point;
+        if (isRight) {
+            // For Right Side (positive X), critical is Max X
+            final_sp_p = (x_1 > x_2) ? { x: x_1, y: y_1 } : { x: x_2, y: y_2 };
+        } else {
+            // For Left Side (negative X), critical is Min X
+            final_sp_p = (x_1 < x_2) ? { x: x_1, y: y_1 } : { x: x_2, y: y_2 };
+        }
 
-        const envXAtY = getXAtY(final_sp_y, envelopePoly, side);
+        // --- Measurements relative to envelope & static ---
+        const envXAtY = getXAtY(final_sp_p.y, envelopePoly, side);
         
         const rotStaticPoly = staticCoords.rotLeftX.map((x, i) => ({x, y: staticCoords.rotLeftY[i]}));
-        
-        const rotStaticX = getXAtY(final_sp_y, rotStaticPoly, side);
-        const origStaticX = getXAtY(final_sp_y, (side === 'right' ? rawPointsRight : rawPointsLeft), side);
+        const rotStaticX = getXAtY(final_sp_p.y, rotStaticPoly, side);
+        const origStaticX = getXAtY(final_sp_p.y, (side === 'right' ? rawPointsRight : rawPointsLeft), side);
 
         studyPoints.push({
-            p: { x: final_sp_x, y: final_sp_y },
+            p: final_sp_p,
             side,
             throwType,
             rotStaticX,
