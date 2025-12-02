@@ -154,19 +154,20 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
                 y_bounced += bounce;
             }
 
-            // 2. Lateral Shift (Geometric Throw)
-            const geomThrow = (p.x >= 0) ? throwShiftRight : throwShiftLeft;
-            
-            // 3. Play & Tolerances
-            const totalLat = lateralBias + geomThrow;
+            // 2. Rotation (Body Roll) - Rotate FIRST
+            const rot = getRotatedCoords(p.x, y_bounced, rollAngle, PIVOT_POINT.x, PIVOT_POINT.y);
 
-            // 4. Rotation
-            const rot = getRotatedCoords(p.x + totalLat, y_bounced, rollAngle, PIVOT_POINT.x, PIVOT_POINT.y);
+            // 3. Lateral Shift (Geometric Throw + Play + Tolerances) - Add LINEARLY
+            const geomThrow = (p.x >= 0) ? throwShiftRight : throwShiftLeft;
+            const totalLat = lateralBias + geomThrow;
+            
+            // 4. Apply shift to rotated X
+            const finalX = rot.x + totalLat;
             
             // 5. Y-Rotation flag
             const finalY = params.considerYRotation ? rot.y : y_bounced;
 
-            return toPoint64({ x: rot.x, y: finalY });
+            return toPoint64({ x: finalX, y: finalY });
         });
     };
 
@@ -292,13 +293,23 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const studyShift = (side === 'right') ? params.latPlay : -params.latPlay;
         const tolShift = (side === 'right') ? tolLatShift : -tolLatShift;
         
-        const x_raw = (params.w / 2 * xMult) + (vehThrow * xMult) + tolShift;
+        // OLD LOGIC (Applying throw then rotation)
+        // const x_raw = (params.w / 2 * xMult) + (vehThrow * xMult) + tolShift;
+        // const y_pos = h_bounced;
+        // const rotAngle = (side === 'right') ? rollRightAngle : rollLeftAngle;
+        // const p_rot = getRotatedCoords(x_raw, y_pos, rotAngle, PIVOT_POINT.x, PIVOT_POINT.y);
+        // const final_sp_x = p_rot.x + studyShift;
+        // const final_sp_y = params.considerYRotation ? p_rot.y : y_pos;
+
+        // NEW LOGIC: Base Point -> Rotate -> Linear Add (Throw + Tol + Play)
+        const x_base = (params.w / 2 * xMult);
         const y_pos = h_bounced;
 
         const rotAngle = (side === 'right') ? rollRightAngle : rollLeftAngle;
-        const p_rot = getRotatedCoords(x_raw, y_pos, rotAngle, PIVOT_POINT.x, PIVOT_POINT.y);
+        const p_rot = getRotatedCoords(x_base, y_pos, rotAngle, PIVOT_POINT.x, PIVOT_POINT.y);
         
-        const final_sp_x = p_rot.x + studyShift;
+        const linearOffset = (vehThrow * xMult) + tolShift + studyShift;
+        const final_sp_x = p_rot.x + linearOffset;
         const final_sp_y = params.considerYRotation ? p_rot.y : y_pos;
 
         const envXAtY = getXAtY(final_sp_y, envelopePoly, side);
@@ -331,10 +342,10 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             const dist = minDistanceToEdges(sp.p, envelopePoly);
 
             if (dist <= TOLERANCE) {
-                // Effectively on the boundary
+                // Effectively on the boundary (within tolerance)
                 hasBoundary = true;
             } else if (!isInside) {
-                // Strictly outside
+                // Strictly outside and not on boundary
                 hasFail = true;
             }
         });
