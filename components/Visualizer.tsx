@@ -235,7 +235,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                     xref: 'paper', yref: 'paper',
                     x: 1, y: 1.08,
                     xanchor: 'right',
-                    text: `Roll: ${data.calculatedParams.rollUsed.toFixed(2) + (data.tol_cant.toFixed(2) / 1137)}° | Tol Lat: ±${data.calculatedParams.tolLatShift + data.latPlay}mm | Bounce: ${data.bounce + data.tol_vert}mm`,
+                    text: `Tol Lat: ±${data.calculatedParams.tolLatShift}mm | Roll: ${data.calculatedParams.rollUsed.toFixed(2)}°`,
                     showarrow: false,
                     font: { size: 12, color: '#555' }
                 }
