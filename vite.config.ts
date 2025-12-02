@@ -5,8 +5,9 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     // You can remove the env loader if you don't have other env vars
     return {
-      // REQUIRED: Matches your repository name for GitHub Pages
-      base: '/railclearance-sim/', 
+      // REQUIRED: Matches your repository name for GitHub Pages in production
+      // Uses root path for local development
+      base: mode === 'production' ? '/railclearance-sim/' : '/', 
       
       server: {
         port: 3000,

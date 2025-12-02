@@ -67,6 +67,25 @@ function pointInPolygon(point: Point, vs: Point[]) {
     return inside;
 }
 
+function distToSegmentSquared(p: Point, v: Point, w: Point): number {
+    const l2 = Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
+    if (l2 === 0) return Math.pow(p.x - v.x, 2) + Math.pow(p.y - v.y, 2);
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.pow(p.x - (v.x + t * (w.x - v.x)), 2) + Math.pow(p.y - (v.y + t * (w.y - v.y)), 2);
+}
+
+function minDistanceToEdges(p: Point, poly: Point[]): number {
+    let minDistSq = Number.MAX_VALUE;
+    for (let i = 0; i < poly.length; i++) {
+        const v = poly[i];
+        const w = poly[(i + 1) % poly.length];
+        const dSq = distToSegmentSquared(p, v, w);
+        if (dSq < minDistSq) minDistSq = dSq;
+    }
+    return Math.sqrt(minDistSq);
+}
+
 // --- Main Simulation Function ---
 export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const R_mm = params.radius * 1000;
@@ -81,10 +100,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const rawPointsRight = outlineData.points;
     
     // Construct full vehicle shape (Right side + Mirror Left side)
-    // rawPointsRight starts at bottom center (0, Y), goes to side, up, top center (0, Y)
-    // We assume the outline is the right half.
     const rawPointsLeft = rawPointsRight.map(p => ({ x: -p.x, y: p.y })).reverse();
-    // Combine to form closed loop: Right path -> Left path (which goes top to bottom)
     const fullStaticShape = [...rawPointsRight, ...rawPointsLeft];
 
     // 1. Calculations - Tolerances
@@ -96,7 +112,6 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         bounce += params.tol_vert;
         
         // Cant Tolerance (Uncertainty) - Always Widens Envelope
-        // Converted from mm using roughly 1137mm gauge center
         const cantTolRad = params.tol_cant / 1137; 
         cantTolAngleDeg = degrees(cantTolRad);
         
@@ -104,7 +119,6 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     }
 
     // 2. Calculations - Applied Cant (Deterministic Bias)
-    // Affects the whole vehicle body lean based on track banking
     const appliedCantRad = params.appliedCant / 1137;
     const appliedCantDeg = degrees(appliedCantRad);
     const cantBiasAngle = isCW ? -appliedCantDeg : appliedCantDeg;
@@ -144,7 +158,6 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             const geomThrow = (p.x >= 0) ? throwShiftRight : throwShiftLeft;
             
             // 3. Play & Tolerances
-            // Lateral Shift for this specific instance
             const totalLat = lateralBias + geomThrow;
 
             // 4. Rotation
@@ -157,12 +170,11 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         });
     };
 
-    // State 1: Leaned Left (Positive Angle), Shifted Left (Negative X)
-    // Lateral Play moves body Left. Tolerances move body Left.
+    // State 1: Leaned Left
     const latShiftLeft = -params.latPlay - tolLatShift;
     const pathLeft = createTransformedPath(rollLeftAngle, latShiftLeft);
 
-    // State 2: Leaned Right (Negative Angle), Shifted Right (Positive X)
+    // State 2: Leaned Right
     const latShiftRight = params.latPlay + tolLatShift;
     const pathRight = createTransformedPath(rollRightAngle, latShiftRight);
 
@@ -187,8 +199,8 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     }
 
     // --- Static Visualization Data ---
-    const visPointsRight = rawPointsRight; // Already Bottom -> Top
-    const visPointsLeft = rawPointsRight.map(p => ({ x: -p.x, y: p.y })); // Bottom -> Top, mirrored
+    const visPointsRight = rawPointsRight; 
+    const visPointsLeft = rawPointsRight.map(p => ({ x: -p.x, y: p.y })); 
 
     const staticCoords = {
         leftX: [] as number[], leftY: [] as number[],
@@ -197,7 +209,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         rotRightX: [] as number[], rotRightY: [] as number[]
     };
 
-    // 1. Original Static (Blue Solid) - Upright
+    // 1. Original Static (Blue Solid)
     visPointsLeft.forEach(p => {
         staticCoords.leftX.push(p.x);
         staticCoords.leftY.push(p.y);
@@ -207,17 +219,11 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         staticCoords.rightY.push(p.y);
     });
 
-    // 2. Rotated Static Ghost (Faint Blue) - Swept Rotation
-    // Create a Union of the Static shape rotated to Max Left and Max Right.
-    // This allows the user to see the roll limits even if no throw is applied.
+    // 2. Rotated Static Ghost (Faint Blue)
     const createRotatedStaticPath = (rollAngle: number): Path64 => {
         return fullStaticShape.map(p => {
-            // No throw, no bounce, no play - just pure rotation around pivot
             const rot = getRotatedCoords(p.x, p.y, rollAngle, PIVOT_POINT.x, PIVOT_POINT.y);
-            
-            // Apply y-rotation flag logic
             const finalY = params.considerYRotation ? rot.y : p.y;
-
             return toPoint64({ x: rot.x, y: finalY }); 
         });
     };
@@ -227,7 +233,6 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const solutionStatic = Clipper.union([pathRotStaticLeft], [pathRotStaticRight], FillRule.NonZero);
 
     if (solutionStatic.length > 0) {
-        // Use largest path
         const outerStatic = solutionStatic.reduce((prev, curr) => curr.length > prev.length ? curr : prev, []);
         outerStatic.forEach(pt => {
             const p = fromPoint64(pt);
@@ -244,11 +249,11 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     // --- Structure Result ---
     const polyCoords = {
         left: { 
-            x: envX, // Full envelope here
+            x: envX, 
             y: envY, 
             static_x: staticCoords.leftX, 
             static_y: staticCoords.leftY, 
-            rot_static_x: staticCoords.rotLeftX, // Full ghost loop here
+            rot_static_x: staticCoords.rotLeftX, 
             rot_static_y: staticCoords.rotLeftY 
         },
         right: { 
@@ -256,13 +261,12 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             y: [], 
             static_x: staticCoords.rightX, 
             static_y: staticCoords.rightY,
-            rot_static_x: [], // Empty, as Left contains the full loop
+            rot_static_x: [], 
             rot_static_y: [] 
         }
     };
 
     // --- Study Points Logic ---
-    // Re-construct the full envelope polygon for point-in-poly checks
     const envelopePoly: Point[] = envX.map((x, i) => ({ x, y: envY[i] }));
 
     const studyPoints: StudyPointResult[] = [];
@@ -270,7 +274,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const minY = Math.min(...ys);
     const maxY = Math.max(...ys);
     const vHeight = (maxY - minY) || 1;
-    const h_bounced = params.h + ((params.h - minY) / vHeight) * bounce; // Approximation for H bounce
+    const h_bounced = params.h + ((params.h - minY) / vHeight) * bounce; 
 
     (['right', 'left'] as const).forEach(side => {
         const xMult = (side === 'right') ? 1 : -1;
@@ -288,22 +292,17 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const studyShift = (side === 'right') ? params.latPlay : -params.latPlay;
         const tolShift = (side === 'right') ? tolLatShift : -tolLatShift;
         
-        // Calculate the "Thrown" position of the study point
         const x_raw = (params.w / 2 * xMult) + (vehThrow * xMult) + tolShift;
         const y_pos = h_bounced;
 
-        // Rotate to the extreme of that side
         const rotAngle = (side === 'right') ? rollRightAngle : rollLeftAngle;
         const p_rot = getRotatedCoords(x_raw, y_pos, rotAngle, PIVOT_POINT.x, PIVOT_POINT.y);
         
         const final_sp_x = p_rot.x + studyShift;
         const final_sp_y = params.considerYRotation ? p_rot.y : y_pos;
 
-        // Calculate Distance to Envelope at this Y
         const envXAtY = getXAtY(final_sp_y, envelopePoly, side);
         
-        // Static Ref for delta - Use Rotated Static Ghost (Swept) for better visual Ref
-        // rotLeftX contains the full loop now
         const rotStaticPoly = staticCoords.rotLeftX.map((x, i) => ({x, y: staticCoords.rotLeftY[i]}));
         
         const rotStaticX = getXAtY(final_sp_y, rotStaticPoly, side);
@@ -321,13 +320,25 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
     // --- Global Status ---
     let globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
+    const TOLERANCE = 1e-1;
+
     if (envelopePoly.length > 0 && studyPoints.length > 0) {
         let hasFail = false;
         let hasBoundary = false;
+        
         studyPoints.forEach(sp => {
             const isInside = pointInPolygon(sp.p, envelopePoly);
-            if (!isInside) hasBoundary = true;
+            const dist = minDistanceToEdges(sp.p, envelopePoly);
+
+            if (dist <= TOLERANCE) {
+                // Effectively on the boundary
+                hasBoundary = true;
+            } else if (!isInside) {
+                // Strictly outside
+                hasFail = true;
+            }
         });
+
         if (hasFail) globalStatus = 'FAIL';
         else if (hasBoundary) globalStatus = 'BOUNDARY';
     }

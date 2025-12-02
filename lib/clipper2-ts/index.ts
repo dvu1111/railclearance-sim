@@ -1,3 +1,4 @@
+
 /*******************************************************************************
 * Author    :  Angus Johnson 
 * Date      :  2025
@@ -6,8 +7,8 @@
 * License   :  https://www.boost.org/LICENSE_1_0.txt
 *******************************************************************************/
 
-// Export core types and interfaces
-export {
+// Export core types (Interfaces and Type Aliases)
+export type {
   Point64,
   PointD,
   Path64,
@@ -15,7 +16,11 @@ export {
   Paths64,
   PathsD,
   Rect64,
-  RectD,
+  RectD
+} from './Core.js';
+
+// Export core values (Enums, Objects, Functions)
+export {
   ClipType,
   PathType,
   FillRule,
@@ -31,13 +36,17 @@ export {
   InvalidRectD
 } from './Core.js';
 
-// Export engine classes
+// Export engine types
+export type {
+  IntersectNode
+} from './Engine.js';
+
+// Export engine values
 export {
   VertexFlags,
   Vertex,
   LocalMinima,
   createLocalMinima, // deprecated: use new LocalMinima() directly
-  IntersectNode,
   createIntersectNode,
   OutPt,
   JoinWith,
