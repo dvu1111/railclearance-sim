@@ -43,7 +43,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             type: 'scatter',
             mode: 'lines',
             hoveron: 'points',
-            hovertemplate: '<b>Dynamic Envelope</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>'
+            hovertemplate: '<b>Dynamic Envelope</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
         });
 
         // --- 2. Rotated Static (Ghost) ---
@@ -66,7 +66,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 type: 'scatter',
                 mode: 'lines',
                 hoveron: 'points',
-                hovertemplate: '<b>Rotated Static</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>'
+                hovertemplate: '<b>Rotated Static</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
             });
         }
 
@@ -80,7 +80,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             mode: 'lines',
             legendgroup: 'static',
             showlegend: true,
-            hovertemplate: '<b>Original Static</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>'
+            hovertemplate: '<b>Original Static</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
         });
         traces.push({
             x: data.polygons.right.static_x,
@@ -91,7 +91,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             mode: 'lines',
             legendgroup: 'static',
             showlegend: false,
-            hovertemplate: '<b>Original Static</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>'
+            hovertemplate: '<b>Original Static</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
         });
 
         // --- 4. Study Points and Measurements ---
@@ -143,8 +143,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 showlegend: false,
                 hovertemplate: 
                     `<b>${sp.side.toUpperCase()} Point (${sp.throwType})</b><br>` +
-                    `x: %{x:.1f} mm<br>` +
-                    `y: %{y:.1f} mm<br>` +
+                    `x: %{x:.2f} mm<br>` +
+                    `y: %{y:.2f} mm<br>` +
                     `<extra></extra>`
             });
 
@@ -190,7 +190,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             mode: 'markers',
             marker: { size: 12, color: 'black', symbol: 'x' },
             name: 'Pivot Center',
-            hovertemplate: '<b>Pivot Center</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>'
+            hovertemplate: '<b>Pivot Center</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
         });
 
         // --- Layout ---
