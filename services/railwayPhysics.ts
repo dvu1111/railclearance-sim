@@ -48,13 +48,8 @@ function getXAtY(targetY: number, polyPoints: Point[], side: 'right' | 'left' = 
     }
     if (intersections.length === 0) return null;
     
-    // For 'right' side analysis, we usually want the max X.
-    // For 'left' side analysis, we usually want the min X.
-    // However, if we are analyzing a full polygon envelope (Clipper result), 
-    // we want the intersection closest to the side of interest relative to the center?
-    // Actually, for Rail Clearance:
-    // Right Side Study Point (x > 0): We care about the Envelope Max X.
-    // Left Side Study Point (x < 0): We care about the Envelope Min X.
+    // For 'right' side analysis, we usually want the max X (outermost).
+    // For 'left' side analysis, we usually want the min X (outermost).
     return side === 'right' ? Math.max(...intersections) : Math.min(...intersections);
 }
 
@@ -220,15 +215,21 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
                     const rotOpt1 = getRotatedCoords(x_pre, y_pre, rollLeftAngle, PIVOT_POINT.x, PIVOT_POINT.y);
                     const rotOpt2 = getRotatedCoords(x_pre, y_pre, rollRightAngle, PIVOT_POINT.x, PIVOT_POINT.y);
 
-                    let rot: Point;
-                    // Legacy: Use side-specific rotation angle for that side's envelope boundary
+                    // FIX: Instead of blindly assigning rotOpt1 or rotOpt2 based on side,
+                    // we must calculate the outermost extent of the envelope.
+                    // Below the pivot point, a right roll swings points to the left, 
+                    // so we must check both roll extremes to find the max swept boundary.
+                    
+                    let selectedX: number;
                     if (side === 'right') {
-                        rot = rotOpt2;
+                        // For Right Side (x > 0), the envelope is the Maximum X
+                        selectedX = Math.max(rotOpt1.x, rotOpt2.x);
                     } else {
-                        rot = rotOpt1;
+                        // For Left Side (x < 0), the envelope is the Minimum X
+                        selectedX = Math.min(rotOpt1.x, rotOpt2.x);
                     }
 
-                    const final_x = rot.x + stdLatShift;
+                    const final_x = selectedX + stdLatShift;
                     // Legacy usually keeps Y constant, but if Y-Rot flag is off, it uses y_pre
                     polyCoords[side].x.push(final_x);
                     polyCoords[side].y.push(y_pre); 
@@ -252,27 +253,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         );
 
         // 3. Apply Lateral Play (Shift)
-        //    The legacy logic applies +latPlay to Right Roll and -latPlay to Left Roll envelope?
-        //    Legacy: "rotS.x + stdLatShift". 
-        //    Right side uses +latPlay. Left side uses -latPlay.
-        //    
-        //    Correction: In a curve, the lateral play acts in the direction of the force.
-        //    Usually we simulate the vehicle shifting fully to the outside.
-        //    
-        //    For simplicity and matching legacy behavior: 
-        //    The envelope is the Union of (Vehicle Leaning Left shifted Left) and (Vehicle Leaning Right shifted Right).
-        //    Wait, usually we want the worst case excursion.
-        //    If we are curving Right (CW): 
-        //      Left side (Outer) is critical -> Leaning Left (away from center) + Shift Left.
-        //      Right side (Inner) is critical -> Leaning Right (towards center) + Shift Right.
-        
-        //    Let's stick to the parameters derived:
-        //    Left Roll Angle was calculated with tolerances.
-        //    Right Roll Angle was calculated with tolerances.
-        
-        //    We need to shift the Left-Rotated shape by -latPlay (Left)
-        //    We need to shift the Right-Rotated shape by +latPlay (Right)
-        
+        // Shift 'outwards' for the kinematic envelope
         const polyLeftFinal = polyLeftRoll.map(p => ({ x: p.x - params.latPlay, y: p.y }));
         const polyRightFinal = polyRightRoll.map(p => ({ x: p.x + params.latPlay, y: p.y }));
 
@@ -284,24 +265,18 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const solutionPaths = Clipper.union([pathL], [pathR], FillRule.NonZero);
 
         // 5. Map back to PolyCoords
-        //    We put the entire solution into the 'left' side array for the visualizer.
-        //    The visualizer draws `left` then `reversed(right)`. 
-        //    If we leave `right` empty, it draws `left` as a loop.
-        
         polyCoords.left.x = [];
         polyCoords.left.y = [];
         polyCoords.right.x = [];
         polyCoords.right.y = [];
 
-        // Flatten all result paths (if multiple islands, this simply connects them, which is acceptable for vis)
+        // Flatten all result paths
         for (const path of solutionPaths) {
             const points = fromPath64(path);
             points.forEach(p => {
                 polyCoords.left.x.push(p.x);
                 polyCoords.left.y.push(p.y);
             });
-            // Close the visual loop if multiple paths exist, or just rely on Visualizer closing it
-            // Ideally a vehicle envelope is one polygon.
         }
     }
 
@@ -340,11 +315,13 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const p_r2 = getRotatedCoords(x_raw, y_pos, rollRightAngle, PIVOT_POINT.x, PIVOT_POINT.y);
 
         let p_rot: Point;
-        // Match Static Visualization Logic: Use side-specific rotation angle
+        // Fix for Study Points as well: pick the worst case
         if (side === 'right') {
-            p_rot = p_r2;
+            // Right side worst case is max X
+            p_rot = (p_r1.x > p_r2.x) ? p_r1 : p_r2;
         } else {
-            p_rot = p_r1;
+            // Left side worst case is min X
+            p_rot = (p_r1.x < p_r2.x) ? p_r1 : p_r2;
         }
 
         // C. Post-Rotation
@@ -410,7 +387,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             
             if (sp.envX !== null) {
                 const dist = Math.abs(sp.p.x - sp.envX);
-                if (dist <= 1e-9) { // Updated tolerance from 0.5 to 1e-9
+                if (dist <= 1e-9) { 
                     hasBoundary = true;
                     isLocalBoundary = true;
                 }
