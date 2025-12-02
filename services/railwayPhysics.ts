@@ -126,9 +126,6 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     rollLeftAngle += cantTolAngleDeg;
     rollRightAngle -= cantTolAngleDeg;
 
-    // Static lean angle for visualization (only applied cant)
-    const staticLeanAngle = cantBiasAngle;
-
     // Process Left and Right sides of the vehicle outline
     (['right', 'left'] as const).forEach(side => {
         const xMult = (side === 'right') ? 1 : -1;
@@ -144,6 +141,13 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
         const stdLatShift = (side === 'right') ? params.latPlay : -params.latPlay;
         const preRotTolShift = (side === 'right') ? tolLatShift : -tolLatShift;
+
+        // Static lean angle for visualization
+        // Apply roll to widen both sides:
+        // Left side -> Rotate CCW (Positive)
+        // Right side -> Rotate CW (Negative)
+        const sideRoll = (side === 'left') ? Math.abs(params.roll) : -Math.abs(params.roll);
+        const staticLeanAngle = cantBiasAngle + sideRoll;
 
         // Iterate through outline segments
         for (let i = 0; i < rawPoints.length - 1; i++) {
@@ -166,7 +170,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
                 polyCoords[side].static_x.push(p.x);
                 polyCoords[side].static_y.push(p.y);
 
-                // 2. Rotated Static (Visualization of Nominal Cant)
+                // 2. Rotated Static (Visualization of Nominal Cant + Roll)
                 const rotS = getRotatedCoords(p.x, p.y, staticLeanAngle, PIVOT_POINT.x, PIVOT_POINT.y);
                 polyCoords[side].rot_static_x.push(rotS.x + stdLatShift);
                 // Apply Y-rotation to visualization if enabled, otherwise use original Y
@@ -182,11 +186,13 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
                 const rotOpt2 = getRotatedCoords(x_pre, y_pre, rollRightAngle, PIVOT_POINT.x, PIVOT_POINT.y);
 
                 let rot: Point;
-                // Maximize OUTWARD excursion
+                // Match Static Visualization Logic: Use side-specific rotation angle
+                // Left Side -> Left Roll (rotOpt1)
+                // Right Side -> Right Roll (rotOpt2)
                 if (side === 'right') {
-                    rot = (rotOpt1.x > rotOpt2.x) ? rotOpt1 : rotOpt2;
+                    rot = rotOpt2;
                 } else {
-                    rot = (rotOpt1.x < rotOpt2.x) ? rotOpt1 : rotOpt2;
+                    rot = rotOpt1;
                 }
 
                 // C. Post-Rotation Translation
@@ -235,10 +241,11 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const p_r2 = getRotatedCoords(x_raw, y_pos, rollRightAngle, PIVOT_POINT.x, PIVOT_POINT.y);
 
         let p_rot: Point;
+        // Match Static Visualization Logic: Use side-specific rotation angle
         if (side === 'right') {
-            p_rot = (p_r1.x > p_r2.x) ? p_r1 : p_r2;
+            p_rot = p_r2;
         } else {
-            p_rot = (p_r1.x < p_r2.x) ? p_r1 : p_r2;
+            p_rot = p_r1;
         }
 
         // C. Post-Rotation
