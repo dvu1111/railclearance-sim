@@ -1,5 +1,5 @@
 import { OUTLINE_DATA_SETS } from "../constants";
-import { Point, SimulationParams, SimulationResult, StudyPointResult, PolyCoords } from "../types";
+import { Point, SimulationParams, SimulationResult, StudyPointResult, PolyCoords, DeltaCurveData } from "../types";
 import { Clipper, Path64, Point64, FillRule } from "../lib/clipper2-ts/index";
 
 // --- Constants & Helpers ---
@@ -253,7 +253,23 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         envelopePoly, rotStaticX, rotStaticY, isCW
     );
 
-    // 7. Global Status
+    // 7. Calculate Delta Curve Data (Clearance Deviation)
+    const ys = rawPointsRight.map(p => p.y);
+    const maxY = Math.max(...ys);
+    
+    // Determine the study vehicle throw offset to subtract
+    // If CW (Right Turn): Left is Outer (Subtract ET), Right is Inner (Subtract CT)
+    // If CCW (Left Turn): Left is Inner (Subtract CT), Right is Outer (Subtract ET)
+    const subtractLeft = isCW ? studyThrows.ET : studyThrows.CT;
+    const subtractRight = isCW ? studyThrows.CT : studyThrows.ET;
+
+    // Calculate Deltas by iterating every 1mm from 0 to maxY
+    // Subtracting the study vehicle throw from the envelope width
+    const deltaGraphData = calculateDeltaCurvesIterative(
+        0, maxY, envelopePoly, subtractLeft, subtractRight, halfW
+    );
+
+    // 8. Global Status
     let globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
     if (studyPoints.length > 0) {
         if (studyPoints.some(sp => sp.status === 'FAIL')) globalStatus = 'FAIL';
@@ -278,6 +294,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             dynamic_x: dynamicStudyX, dynamic_y: dynamicStudyY
         },
         studyPoints,
+        deltaGraphData,
         globalStatus,
         calculatedParams: {
             rollUsed: params.roll,
@@ -287,6 +304,31 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         },
         pivot
     };
+}
+
+function calculateDeltaCurvesIterative(
+    minY: number, maxY: number, 
+    envelope: Point[],
+    subtractLeft: number,
+    subtractRight: number,
+    halfWidth: number
+): DeltaCurveData {
+    const result: DeltaCurveData = { y: [], deltaLeft: [], deltaRight: [] };
+
+    // Iterate 1mm steps from 0 to Max Height
+    for (let y = minY; y <= maxY; y += 1) {
+        // Get Envelope Boundary at this height
+        const envL = getXAtY(y, envelope, 'left');
+        const envR = getXAtY(y, envelope, 'right');
+
+        if (envL !== null && envR !== null) {
+            result.y.push(y);
+            // Output absolute X values (Envelope Widths) minus the Study Vehicle Throw and Half Width
+            result.deltaLeft.push(Math.abs(envL) - subtractLeft - halfWidth); 
+            result.deltaRight.push(Math.abs(envR) - subtractRight - halfWidth);
+        }
+    }
+    return result;
 }
 
 function calculateStudyPoints(

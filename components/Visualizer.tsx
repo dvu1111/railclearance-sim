@@ -10,7 +10,7 @@ interface VisualizerProps {
 
 const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
     
-    const { plotData, layout } = useMemo(() => {
+    const mainPlot = useMemo(() => {
         const traces: Data[] = [];
         const { polygons, studyVehicle, studyPoints, globalStatus, calculatedParams, pivot } = data;
 
@@ -128,7 +128,6 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 ? Math.abs(sp.p.x - sp.staticStudyX).toFixed(2) 
                 : null;
 
-            // Calculate anchor X (outermost point) to avoid overlapping the line
             let textAnchorX = sp.p.x;
             if (sp.side === 'left') {
                 if (sp.envX !== null) textAnchorX = Math.min(textAnchorX, sp.envX);
@@ -140,7 +139,6 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 if (sp.staticStudyX !== null && params.showStudyVehicle) textAnchorX = Math.max(textAnchorX, sp.staticStudyX);
             }
             
-            // Offset to create a small gap between the line end and the text
             const offset = sp.side === 'left' ? -20 : 20;
 
             let labelHtml = 
@@ -173,7 +171,6 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             hovertemplate: '<b>Pivot Center</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
         });
 
-        // --- Calculate Labels for Annotation ---
         const vertTol = params.enableTolerances ? params.tol_vert : 0;
         const rollLabel = `Roll: ${calculatedParams.rollUsed.toFixed(2)}° ±${calculatedParams.cantTolUsed.toFixed(2)}°`;
         const latLabel = `Lat: ±${params.latPlay}mm ±${calculatedParams.tolLatShift}mm`;
@@ -182,7 +179,6 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
 
         const directionText = params.direction === 'cw' ? "Clockwise (Right Turn)" : "Counter-Clockwise (Left Turn)";
 
-        // Layout
         const layout: Partial<Layout> = {
             autosize: true,
             title: {
@@ -191,8 +187,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             },
             font: { family: 'Arial, sans-serif' },
             showlegend: true,
-            legend: { orientation: 'h', y: -0.15, x: 0.5, xanchor: 'center' },
-            margin: { l: 60, r: 60, b: 80, t: 100 },
+            legend: { orientation: 'h', y: -0.1, x: 0.5, xanchor: 'center' },
+            margin: { l: 60, r: 60, b: 60, t: 80 },
             xaxis: { 
                 title: { text: 'Lateral Position (mm)' }, 
                 zeroline: true, 
@@ -213,7 +209,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             annotations: [
                 {
                     xref: 'paper', yref: 'paper',
-                    x: 0, y: 1.08,
+                    x: 0, y: 1.05,
                     xanchor: 'left',
                     text: `Status: <b>${globalStatus}</b>`,
                     showarrow: false,
@@ -222,23 +218,101 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             ]
         };
 
-        return { plotData: traces, layout };
+        return { data: traces, layout };
     }, [data, params]);
 
+    // --- SECOND PLOT: DELTA GRAPH ---
+    const deltaPlot = useMemo(() => {
+        if (!params.showDeltaGraph || !data.deltaGraphData) return null;
+
+        const { deltaGraphData } = data;
+        const isCW = params.direction === 'cw';
+
+        // CW (Right Turn): 
+        //   - Right Side is Inner (CT)
+        //   - Left Side is Outer (ET)
+        // CCW (Left Turn):
+        //   - Right Side is Outer (ET)
+        //   - Left Side is Inner (CT)
+
+        // Map data to ET/CT based on curve direction
+        const etData = isCW ? deltaGraphData.deltaLeft : deltaGraphData.deltaRight;
+        const ctData = isCW ? deltaGraphData.deltaRight : deltaGraphData.deltaLeft;
+
+        // X-axis = Height (iterated from 0 to vehicle top)
+        // Y-axis = Delta Value (Expansion amount)
+        const traces: Data[] = [
+            {
+                x: deltaGraphData.y, // Height
+                y: etData,           // ET Delta
+                name: 'ET (End Throw)', 
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#059669', width: 2 }, // Green
+                hovertemplate: 'Height: %{x:.0f}mm<br>ET Delta: %{y:.2f}mm<extra></extra>'
+            },
+            {
+                x: deltaGraphData.y, // Height
+                y: ctData,           // CT Delta
+                name: 'CT (Center Throw)', 
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#d946ef', width: 2 }, // Magenta
+                hovertemplate: 'Height: %{x:.0f}mm<br>CT Delta: %{y:.2f}mm<extra></extra>'
+            }
+        ];
+
+        const layout: Partial<Layout> = {
+            autosize: true,
+            title: {
+                text: '<b>Clearance Expansion (Delta)</b>',
+                font: { family: 'Arial', size: 14 }
+            },
+            font: { family: 'Arial, sans-serif' },
+            showlegend: true,
+            legend: { orientation: 'h', y: -0.25, x: 0.5, xanchor: 'center' },
+            margin: { l: 60, r: 20, b: 60, t: 40 },
+            xaxis: {
+                title: { text: 'Height (mm)' }, 
+                showgrid: true,
+                gridcolor: '#e5e7eb',
+                zeroline: true,
+            },
+            yaxis: {
+                title: { text: 'Delta Env (mm)' },
+                showgrid: true,
+                gridcolor: '#e5e7eb',
+                zeroline: true,
+            },
+            hovermode: 'x unified',
+        };
+
+        return { data: traces, layout };
+    }, [data, params.showDeltaGraph, params.direction]);
+
     return (
-        <div className="w-full h-full bg-white rounded-lg shadow-lg border border-gray-200">
-            <Plot
-                data={plotData}
-                layout={layout}
-                useResizeHandler={true}
-                className="w-full h-full"
-                config={{ 
-                    displayModeBar: true, 
-                    responsive: true,
-                    displaylogo: false,
-                    modeBarButtonsToRemove: ['lasso2d', 'select2d']
-                }}
-            />
+        <div className="w-full h-full flex flex-col gap-2">
+            <div className={`w-full bg-white rounded-lg shadow-lg border border-gray-200 ${params.showDeltaGraph ? 'h-[60%]' : 'h-full'}`}>
+                <Plot
+                    data={mainPlot.data}
+                    layout={mainPlot.layout}
+                    useResizeHandler={true}
+                    className="w-full h-full"
+                    config={{ displayModeBar: true, responsive: true, displaylogo: false }}
+                />
+            </div>
+            
+            {params.showDeltaGraph && deltaPlot && (
+                <div className="w-full h-[40%] bg-white rounded-lg shadow-lg border border-gray-200">
+                    <Plot
+                        data={deltaPlot.data}
+                        layout={deltaPlot.layout}
+                        useResizeHandler={true}
+                        className="w-full h-full"
+                        config={{ displayModeBar: true, responsive: true, displaylogo: false }}
+                    />
+                </div>
+            )}
         </div>
     );
 };

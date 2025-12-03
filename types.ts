@@ -60,6 +60,7 @@ export interface SimulationParams {
   
   // Visualization
   showStudyVehicle: boolean; 
+  showDeltaGraph: boolean;
 }
 
 export interface StudyPointResult {
@@ -89,6 +90,12 @@ export interface StudyVehicleCoords {
   dynamic_y: number[];
 }
 
+export interface DeltaCurveData {
+  y: number[];
+  deltaLeft: number[];
+  deltaRight: number[];
+}
+
 export interface SimulationResult {
   polygons: {
     left: PolyCoords;
@@ -96,6 +103,7 @@ export interface SimulationResult {
   };
   studyVehicle: StudyVehicleCoords; 
   studyPoints: StudyPointResult[];
+  deltaGraphData: DeltaCurveData;
   globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY';
   calculatedParams: {
     rollUsed: number;

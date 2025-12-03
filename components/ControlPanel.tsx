@@ -230,6 +230,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate }) => {
               />
               <span className="text-xs font-bold text-gray-700">Precise Calculation (Trig)</span>
           </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                  type="checkbox"
+                  checked={params.showDeltaGraph}
+                  onChange={(e) => handleBool('showDeltaGraph', e.target.checked)}
+              />
+              <span className="text-xs font-bold text-gray-700">Show Delta Graph</span>
+          </label>
       </section>
     </div>
   );
