@@ -31,7 +31,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             line: { color: '#FF6347', dash: 'dash', width: 2 },
             name: 'Dynamic Envelope',
             type: 'scatter', mode: 'lines',
-            hoverinfo: 'skip'
+            hoveron: 'points',
+            hovertemplate: '<b>Dynamic Envelope</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
         });
 
         // 2. Rotated Static Ghost (Visual Context)
@@ -45,7 +46,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 line: { color: '#2563eb', dash: 'dot', width: 1 },
                 name: 'Rotated Static',
                 type: 'scatter', mode: 'lines',
-                hoverinfo: 'skip'
+                hoveron: 'points',
+                hovertemplate: '<b>Rotated Static</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
             });
         }
 
@@ -58,7 +60,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 name: 'Original Static',
                 type: 'scatter', mode: 'lines',
                 legendgroup: 'static',
-                showlegend: side === 'left'
+                showlegend: side === 'left',
+                hovertemplate: '<b>Original Static</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
             });
         });
 
@@ -67,13 +70,15 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             traces.push({
                 x: studyVehicle.static_x, y: studyVehicle.static_y,
                 mode: 'lines', line: { color: '#4b5563', dash: 'dash', width: 1.5 },
-                name: 'Study Veh (Static)'
+                name: 'Static Study Veh',
+                hoverinfo: 'skip'
             });
             if (studyVehicle.dynamic_x.length > 0) {
                 traces.push({
                     x: studyVehicle.dynamic_x, y: studyVehicle.dynamic_y,
                     mode: 'lines', line: { color: '#f97316', dash: 'dot', width: 1.5 },
-                    name: 'Study Veh (Dynamic)'
+                    name: 'Dynamic Study Veh',
+                    hoverinfo: 'skip'
                 });
             }
         }
@@ -88,49 +93,133 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 x: [sp.p.x], y: [sp.p.y],
                 mode: 'markers',
                 marker: { size: 10, color, symbol: 'cross', line: { width: 2, color } },
-                name: `${sp.side.toUpperCase()} Point`,
+                name: `Study Point (${sp.side})`,
                 showlegend: false,
-                hovertemplate: `<b>${sp.side} (${sp.throwType})</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>`
+                hovertemplate: 
+                    `<b>${sp.side.toUpperCase()} Point (${sp.throwType})</b><br>` +
+                    `x: %{x:.2f} mm<br>` +
+                    `y: %{y:.2f} mm<br>` +
+                    `<extra></extra>`
             });
 
             // Measurement Lines
-            const addMeasure = (targetX: number | null, name: string, lineColor: string) => {
+            const addMeasure = (targetX: number | null, name: string, lineColor: string, legendGroup: string) => {
                 if (targetX === null) return;
                 traces.push({
                     x: [sp.p.x, targetX], y: [y, y],
                     mode: 'lines',
-                    line: { color: lineColor, dash: 'dot', width: 1 },
-                    showlegend: false,
+                    line: { color: lineColor, dash: 'dash', width: 1.5 },
+                    name: name,
+                    legendgroup: legendGroup,
+                    showlegend: i === 0,
                     hoverinfo: 'text',
-                    text: `${name}: ${Math.abs(sp.p.x - targetX).toFixed(1)}mm`
+                    text: `${name}: ${Math.abs(sp.p.x - targetX).toFixed(2)}mm`
                 });
             };
 
-            addMeasure(sp.envX, 'Δ Env', '#800080');
-            if (params.showStudyVehicle) addMeasure(sp.staticStudyX, 'Δ Veh', '#2563eb');
+            addMeasure(sp.envX, 'Δ Envelope', '#800080', 'delta_env');
+            addMeasure(sp.rotStaticX, 'Δ Static', 'red', 'delta_static');
+            if (params.showStudyVehicle) addMeasure(sp.staticStudyX, 'Δ Study Veh', '#2563eb', 'delta_study');
+
+            // --- DETAILED TEXT LABELS ---
+            const valStatic = sp.rotStaticX !== null ? Math.abs(sp.p.x - sp.rotStaticX).toFixed(2) : '-';
+            const valEnv = sp.envX !== null ? Math.abs(sp.p.x - sp.envX).toFixed(2) : '-';
+            const valStudy = (params.showStudyVehicle && sp.staticStudyX !== null) 
+                ? Math.abs(sp.p.x - sp.staticStudyX).toFixed(2) 
+                : null;
+
+            // Calculate anchor X (outermost point) to avoid overlapping the line
+            let textAnchorX = sp.p.x;
+            if (sp.side === 'left') {
+                if (sp.envX !== null) textAnchorX = Math.min(textAnchorX, sp.envX);
+                if (sp.rotStaticX !== null) textAnchorX = Math.min(textAnchorX, sp.rotStaticX);
+                if (sp.staticStudyX !== null && params.showStudyVehicle) textAnchorX = Math.min(textAnchorX, sp.staticStudyX);
+            } else {
+                if (sp.envX !== null) textAnchorX = Math.max(textAnchorX, sp.envX);
+                if (sp.rotStaticX !== null) textAnchorX = Math.max(textAnchorX, sp.rotStaticX);
+                if (sp.staticStudyX !== null && params.showStudyVehicle) textAnchorX = Math.max(textAnchorX, sp.staticStudyX);
+            }
+            
+            // Offset to create a small gap between the line end and the text
+            const offset = sp.side === 'left' ? -20 : 20;
+
+            let labelHtml = 
+                `<span style="color: #15803d; font-weight:bold;">y:${sp.p.y.toFixed(0)}</span><br>` +
+                `<span style="color: #dc2626; font-weight:bold;">Δ ${sp.throwType} Static: ${valStatic}</span><br>` +
+                `<span style="color: #7e22ce; font-weight:bold;">Δ Env: ${valEnv}</span>`;
+            
+            if (valStudy !== null) {
+                labelHtml += `<br><span style="color: #2563eb; font-weight:bold;">Δ Study: ${valStudy}</span>`;
+            }
+
+            traces.push({
+                x: [textAnchorX + offset],
+                y: [sp.p.y],
+                text: [labelHtml],
+                mode: 'text',
+                type: 'scatter',
+                textposition: sp.side === 'left' ? 'top left' : 'top right',
+                showlegend: false,
+                hoverinfo: 'none',
+                textfont: { size: 11, family: 'Arial, sans-serif' }
+            });
         });
 
         // 6. Pivot
         traces.push({
             x: [pivot.x], y: [pivot.y],
-            mode: 'markers', marker: { size: 10, color: 'black', symbol: 'x' },
-            name: 'Pivot', showlegend: false
+            mode: 'markers', marker: { size: 12, color: 'black', symbol: 'x' },
+            name: 'Pivot Center',
+            hovertemplate: '<b>Pivot Center</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
         });
+
+        // --- Calculate Labels for Annotation ---
+        const vertTol = params.enableTolerances ? params.tol_vert : 0;
+        const rollLabel = `Roll: ${calculatedParams.rollUsed.toFixed(2)}° ±${calculatedParams.cantTolUsed.toFixed(2)}°`;
+        const latLabel = `Lat: ±${params.latPlay}mm ±${calculatedParams.tolLatShift}mm`;
+        const bounceLabel = `Bounce: ${params.bounce}mm +${vertTol}mm`;
+        const statsLabel = `${rollLabel} | ${latLabel} | ${bounceLabel}`;
+
+        const directionText = params.direction === 'cw' ? "Clockwise (Right Turn)" : "Counter-Clockwise (Left Turn)";
 
         // Layout
         const layout: Partial<Layout> = {
             autosize: true,
             title: {
-                text: `<b>Simulation Results</b><br><span style="font-size: 12px; color: gray;">Roll: ${calculatedParams.rollUsed.toFixed(2)}° | Bounce: ${params.bounce}mm | Status: ${globalStatus}</span>`,
+                text: `<b>Vehicle Outline Simulation</b><br><span style="font-size: 12px;">${directionText}</span><br><span style="font-size: 11px; color: #555;">${statsLabel}</span>`,
                 font: { family: 'Arial', size: 18 }
             },
+            font: { family: 'Arial, sans-serif' },
             showlegend: true,
-            legend: { orientation: 'h', y: -0.1 },
-            margin: { l: 50, r: 50, b: 50, t: 80 },
-            // FIX: Use object structure for axis titles to match Partial<DataTitle>
-            xaxis: { title: { text: 'Lateral (mm)' }, zeroline: true, scaleanchor: 'y', scaleratio: 1 },
-            yaxis: { title: { text: 'Vertical (mm)' }, zeroline: true },
-            hovermode: 'closest'
+            legend: { orientation: 'h', y: -0.15, x: 0.5, xanchor: 'center' },
+            margin: { l: 60, r: 60, b: 80, t: 100 },
+            xaxis: { 
+                title: { text: 'Lateral Position (mm)' }, 
+                zeroline: true, 
+                showgrid: true,
+                gridcolor: '#e5e7eb',
+                zerolinecolor: '#9ca3af',
+                scaleanchor: 'y', 
+                scaleratio: 1 
+            },
+            yaxis: { 
+                title: { text: 'Height (mm)' }, 
+                zeroline: true,
+                showgrid: true,
+                gridcolor: '#e5e7eb',
+                zerolinecolor: '#9ca3af'
+            },
+            hovermode: 'closest',
+            annotations: [
+                {
+                    xref: 'paper', yref: 'paper',
+                    x: 0, y: 1.08,
+                    xanchor: 'left',
+                    text: `Status: <b>${globalStatus}</b>`,
+                    showarrow: false,
+                    font: { color: globalStatus === 'FAIL' ? 'red' : (globalStatus === 'BOUNDARY' ? '#eab308' : 'green'), size: 14 }
+                }
+            ]
         };
 
         return { plotData: traces, layout };
@@ -143,7 +232,12 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 layout={layout}
                 useResizeHandler={true}
                 className="w-full h-full"
-                config={{ displayModeBar: true, responsive: true }}
+                config={{ 
+                    displayModeBar: true, 
+                    responsive: true,
+                    displaylogo: false,
+                    modeBarButtonsToRemove: ['lasso2d', 'select2d']
+                }}
             />
         </div>
     );

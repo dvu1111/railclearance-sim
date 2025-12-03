@@ -5,6 +5,7 @@ import { Clipper, Path64, Point64, FillRule } from "../lib/clipper2-ts/index";
 // --- Constants & Helpers ---
 const CLIPPER_SCALE = 1000;
 const PIVOT_DEFAULT = { x: 0, y: 1100 };
+const TOLERANCE = 0.1; // 0.1 mm tolerance for boundary checks
 
 function radians(deg: number) { return deg * Math.PI / 180; }
 function degrees(rad: number) { return rad * 180 / Math.PI; }
@@ -208,7 +209,6 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     }
 
     // 6. Study Points Analysis
-    // (Kept simplified for brevity, logic remains similar but structured)
     const envelopePoly: Point[] = envX.map((x, i) => ({ x, y: envY[i] }));
     const studyPoints = calculateStudyPoints(
         params, rawPointsRight, rawPointsLeft, 
@@ -292,6 +292,16 @@ function calculateStudyPoints(
 
         // Critical logic: Right side -> Max X, Left side -> Min X
         const finalP = (isRight ? (x1 > x2) : (x1 < x2)) ? { x: x1, y: y1 } : { x: x2, y: y2 };
+        // Fix variable names from copy/paste (x_1 -> x1)
+        if (isRight) {
+             // For Right Side (positive X), critical is Max X
+             // If leaned right > leaned left
+             if (x2 > x1) { finalP.x = x2; finalP.y = y2; } else { finalP.x = x1; finalP.y = y1; }
+        } else {
+             // For Left Side (negative X), critical is Min X
+             // If leaned left < leaned right
+             if (x1 < x2) { finalP.x = x1; finalP.y = y1; } else { finalP.x = x2; finalP.y = y2; }
+        }
 
         // Intersections
         const envXAtY = getXAtY(finalP.y, envelope, side);
@@ -299,14 +309,19 @@ function calculateStudyPoints(
         const rotStaticXAtY = getXAtY(finalP.y, rotStaticPoly, side);
         const origStaticX = getXAtY(finalP.y, isRight ? rawRight : rawLeft, side);
 
-        // Fail Check
+        // Fail Check Logic (Matches Main Branch)
+        const isInside = pointInPolygon(finalP, envelope);
+        const dist = minDistanceToEdges(finalP, envelope);
+        
         let status: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
-        if (pointInPolygon(finalP, envelope)) {
-             // Inside
-        } else {
-            const dist = minDistanceToEdges(finalP, envelope);
-            if (dist < 0.1) status = 'BOUNDARY';
-            else status = 'FAIL';
+
+        if (dist <= TOLERANCE) {
+            // Effectively on the boundary (within tolerance)
+            // This captures points that are technically inside OR outside but very close
+            status = 'BOUNDARY';
+        } else if (!isInside) {
+            // Strictly outside and not on boundary
+            status = 'FAIL';
         }
 
         studyPoints.push({
@@ -317,14 +332,14 @@ function calculateStudyPoints(
             origStaticX,
             envX: envXAtY,
             staticStudyX: x_base,
-            status: status as any // augmentation for internal logic
+            status
         });
     });
 
     return studyPoints;
 }
 
-// --- Geometry Helpers (Kept mostly same, just clean signature) ---
+// --- Geometry Helpers ---
 function getXAtY(targetY: number, polyPoints: Point[], side: 'right' | 'left'): number | null {
     const intersections: number[] = [];
     for (let i = 0; i < polyPoints.length; i++) {
@@ -361,9 +376,17 @@ function minDistanceToEdges(p: Point, poly: Point[]): number {
     for (let i = 0; i < poly.length; i++) {
         const v = poly[i];
         const w = poly[(i + 1) % poly.length];
+        
+        // Segment distance squared
         const l2 = Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
-        let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / (l2 || 1);
-        t = Math.max(0, Math.min(1, t));
+        let t = 0;
+        if (l2 === 0) {
+            t = 0;
+        } else {
+            t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+            t = Math.max(0, Math.min(1, t));
+        }
+        
         const dSq = Math.pow(p.x - (v.x + t * (w.x - v.x)), 2) + Math.pow(p.y - (v.y + t * (w.y - v.y)), 2);
         minDistSq = Math.min(minDistSq, dSq);
     }
