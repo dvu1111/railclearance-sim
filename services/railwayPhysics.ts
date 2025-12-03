@@ -127,8 +127,9 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     let calc_ET = 0, calc_CT = 0;
     
     if (R_mm !== 0) {
-        calc_ET = (Math.pow(params.L_outline, 2) - Math.pow(params.B_outline, 2)) / (8 * R_mm);
-        calc_CT = Math.pow(params.B_outline, 2) / (8 * R_mm);
+        // UPDATED: Use Vehicle Dims (L_veh, B_veh) instead of Reference Outline Dims
+        calc_ET = (Math.pow(params.L_veh, 2) - Math.pow(params.B_veh, 2)) / (8 * R_mm);
+        calc_CT = Math.pow(params.B_veh, 2) / (8 * R_mm);
     }
 
     // Apply Throws based on direction
