@@ -48,9 +48,7 @@ The simulation pipeline transforms a static vehicle profile into a dynamic envel
 
 1.  **Geometric Throw Calculation**:
     Approximated using the versine formula based on the vehicle's rigid wheelbase ($B$) and overall length ($L$):
-    $$
-    \text{End Throw} \approx \frac{L^2 - B^2}{8R} \quad \textbf{and} \quad \text{Centre Throw} \approx \frac{B^2}{8R}
-    $$
+    **End Throw** $\approx \frac{L^2 - B^2}{8R}$ **and** **Centre Throw** $\approx \frac{B^2}{8R}$
 
 3.  **Coordinate Transformation**:
     Points are translated and rotated based on the aggregate of track tolerances and vehicle dynamics:
