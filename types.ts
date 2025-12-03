@@ -55,7 +55,10 @@ export interface SimulationParams {
   bounceYThreshold: number; // mm
   
   // Calculation Settings
-  considerYRotation: boolean; // New flag for Y-rotation
+  considerYRotation: boolean;
+  
+  // Visualization
+  showStudyVehicle: boolean; // New flag to toggle study vehicle overlay
 }
 
 export interface StudyPointResult {
@@ -65,6 +68,7 @@ export interface StudyPointResult {
   rotStaticX: number | null;
   origStaticX: number | null;
   envX: number | null;
+  staticStudyX: number | null; // New: X position of the static study vehicle edge
 }
 
 export interface PolyCoords {
@@ -76,11 +80,19 @@ export interface PolyCoords {
   rot_static_y: number[];
 }
 
+export interface StudyVehicleCoords {
+  static_x: number[];
+  static_y: number[];
+  dynamic_x: number[];
+  dynamic_y: number[];
+}
+
 export interface SimulationResult {
   polygons: {
     left: PolyCoords;
     right: PolyCoords;
   };
+  studyVehicle: StudyVehicleCoords; // New: Coordinates for the study vehicle box
   studyPoints: StudyPointResult[];
   globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY';
   calculatedParams: {
