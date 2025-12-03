@@ -12,302 +12,137 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
     
     const { plotData, layout } = useMemo(() => {
         const traces: Data[] = [];
+        const { polygons, studyVehicle, studyPoints, globalStatus, calculatedParams, pivot } = data;
+
+        // 1. Dynamic Envelope (Filled)
+        const envX = [...polygons.left.x, ...[...polygons.right.x].reverse(), polygons.left.x[0]];
+        const envY = [...polygons.left.y, ...[...polygons.right.y].reverse(), polygons.left.y[0]];
         
-        // --- 1. Dynamic Envelope (Filled Area) ---
-        const leftX = data.polygons.left.x;
-        const leftY = data.polygons.left.y;
-        const rightX = [...data.polygons.right.x].reverse();
-        const rightY = [...data.polygons.right.y].reverse();
-
-        const envX = [...leftX, ...rightX, leftX[0]];
-        const envY = [...leftY, ...rightY, leftY[0]];
-
-        // Status Colors
-        let fillColor = 'rgba(230, 249, 230, 0.6)'; // Green
-        let statusText = "PASS";
-        if (data.globalStatus === 'FAIL') {
-             fillColor = 'rgba(254, 202, 202, 0.6)'; // Red
-             statusText = "FAIL";
-        } else if (data.globalStatus === 'BOUNDARY') {
-             fillColor = 'rgba(251, 191, 36, 0.6)'; // Amber
-             statusText = "BOUNDARY";
-        }
+        const statusColors = {
+            'PASS': 'rgba(230, 249, 230, 0.6)',
+            'FAIL': 'rgba(254, 202, 202, 0.6)',
+            'BOUNDARY': 'rgba(251, 191, 36, 0.6)'
+        };
 
         traces.push({
-            x: envX,
-            y: envY,
+            x: envX, y: envY,
             fill: 'toself',
-            fillcolor: fillColor,
+            fillcolor: statusColors[globalStatus],
             line: { color: '#FF6347', dash: 'dash', width: 2 },
             name: 'Dynamic Envelope',
-            type: 'scatter',
-            mode: 'lines',
-            hoveron: 'points',
-            hovertemplate: '<b>Dynamic Envelope</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
+            type: 'scatter', mode: 'lines',
+            hoverinfo: 'skip'
         });
 
-        // --- 2. Rotated Static (Ghost) ---
-        const rLeftX = data.polygons.left.rot_static_x;
-        const rLeftY = data.polygons.left.rot_static_y;
-        const rRightX = [...data.polygons.right.rot_static_x].reverse();
-        const rRightY = [...data.polygons.right.rot_static_y].reverse();
-
-        if (rLeftX.length > 0) {
-            const rotX = [...rLeftX, ...rRightX, rLeftX[0]];
-            const rotY = [...rLeftY, ...rRightY, rLeftY[0]];
-            
+        // 2. Rotated Static Ghost (Visual Context)
+        if (polygons.left.rot_static_x.length > 0) {
+            const rX = [...polygons.left.rot_static_x, ...[...polygons.right.rot_static_x].reverse(), polygons.left.rot_static_x[0]];
+            const rY = [...polygons.left.rot_static_y, ...[...polygons.right.rot_static_y].reverse(), polygons.left.rot_static_y[0]];
             traces.push({
-                x: rotX,
-                y: rotY,
+                x: rX, y: rY,
                 fill: 'toself',
                 fillcolor: 'rgba(59, 130, 246, 0.1)',
                 line: { color: '#2563eb', dash: 'dot', width: 1 },
                 name: 'Rotated Static',
-                type: 'scatter',
-                mode: 'lines',
-                hoveron: 'points',
-                hovertemplate: '<b>Rotated Static</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
-            });
-        }
-
-        // --- 3. Original Static (Solid Blue) ---
-        traces.push({
-            x: data.polygons.left.static_x,
-            y: data.polygons.left.static_y,
-            line: { color: '#2563eb', width: 2 },
-            name: 'Original Static',
-            type: 'scatter',
-            mode: 'lines',
-            legendgroup: 'static',
-            showlegend: true,
-            hovertemplate: '<b>Original Static</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
-        });
-        traces.push({
-            x: data.polygons.right.static_x,
-            y: data.polygons.right.static_y,
-            line: { color: '#2563eb', width: 2 },
-            name: 'Original Static',
-            type: 'scatter',
-            mode: 'lines',
-            legendgroup: 'static',
-            showlegend: false,
-            hovertemplate: '<b>Original Static</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
-        });
-
-        // --- New Feature: Study Vehicle Outline (Static & Dynamic) ---
-        if (params.showStudyVehicle) {
-            // Static Study Vehicle (Gray Dashed)
-            traces.push({
-                x: data.studyVehicle.static_x,
-                y: data.studyVehicle.static_y,
-                mode: 'lines',
-                line: { color: '#4b5563', dash: 'dash', width: 1.5 },
-                name: 'Static Study Veh',
+                type: 'scatter', mode: 'lines',
                 hoverinfo: 'skip'
             });
+        }
 
-            // Dynamic Study Vehicle (Orange Dot)
-            if (data.studyVehicle.dynamic_x.length > 0) {
+        // 3. Original Static Reference
+        ['left', 'right'].forEach(side => {
+            const p = polygons[side as 'left' | 'right'];
+            traces.push({
+                x: p.static_x, y: p.static_y,
+                line: { color: '#2563eb', width: 2 },
+                name: 'Original Static',
+                type: 'scatter', mode: 'lines',
+                legendgroup: 'static',
+                showlegend: side === 'left'
+            });
+        });
+
+        // 4. Study Vehicle Overlay
+        if (params.showStudyVehicle) {
+            traces.push({
+                x: studyVehicle.static_x, y: studyVehicle.static_y,
+                mode: 'lines', line: { color: '#4b5563', dash: 'dash', width: 1.5 },
+                name: 'Study Veh (Static)'
+            });
+            if (studyVehicle.dynamic_x.length > 0) {
                 traces.push({
-                    x: data.studyVehicle.dynamic_x,
-                    y: data.studyVehicle.dynamic_y,
-                    mode: 'lines',
-                    line: { color: '#f97316', dash: 'dot', width: 1.5 },
-                    name: 'Dynamic Study Veh',
-                    hoverinfo: 'skip'
+                    x: studyVehicle.dynamic_x, y: studyVehicle.dynamic_y,
+                    mode: 'lines', line: { color: '#f97316', dash: 'dot', width: 1.5 },
+                    name: 'Study Veh (Dynamic)'
                 });
             }
         }
 
-        // --- 4. Study Points and Measurements ---
-        data.studyPoints.forEach((sp, idx) => {
+        // 5. Study Points & Measurements
+        studyPoints.forEach((sp, i) => {
             const y = sp.p.y;
-            const isET = sp.throwType === 'ET';
-            const color = isET ? '#059669' : '#d946ef';
+            const color = sp.throwType === 'ET' ? '#059669' : '#d946ef';
 
-            // A. Measurement Lines (Dashed)
-            // Delta to Envelope
-            if (sp.envX !== null) {
-                const dist = Math.abs(sp.p.x - sp.envX);
-                traces.push({
-                    x: [sp.p.x, sp.envX],
-                    y: [y, y],
-                    mode: 'lines',
-                    line: { color: '#800080', dash: 'dash', width: 1.5 },
-                    name: 'Δ Envelope',
-                    legendgroup: 'delta_env',
-                    showlegend: idx === 0,
-                    hoverinfo: 'text',
-                    text: `Δ Env: ${dist.toFixed(2)}mm`
-                });
-            }
-
-            // Delta to Static (Reference)
-            if (sp.rotStaticX !== null) {
-                const dist = Math.abs(sp.p.x - sp.rotStaticX);
-                traces.push({
-                    x: [sp.p.x, sp.rotStaticX],
-                    y: [y, y],
-                    mode: 'lines',
-                    line: { color: 'red', dash: 'dash', width: 1.5 },
-                    name: 'Δ Static',
-                    legendgroup: 'delta_static',
-                    showlegend: idx === 0,
-                    hoverinfo: 'text',
-                    text: `Δ Static: ${dist.toFixed(2)}mm`
-                });
-            }
-
-            // New: Delta to Static Study Vehicle
-            if (params.showStudyVehicle && sp.staticStudyX !== null) {
-                const dist = Math.abs(sp.p.x - sp.staticStudyX);
-                traces.push({
-                    x: [sp.p.x, sp.staticStudyX],
-                    y: [y, y],
-                    mode: 'lines',
-                    line: { color: '#2563eb', dash: 'dot', width: 1 },
-                    name: 'Δ Study Veh',
-                    legendgroup: 'delta_study',
-                    showlegend: idx === 0,
-                    hoverinfo: 'text',
-                    text: `Δ Study Veh (${sp.throwType}): ${dist.toFixed(2)}mm`
-                });
-            }
-
-            // B. The Point Itself
+            // Point
             traces.push({
-                x: [sp.p.x],
-                y: [sp.p.y],
+                x: [sp.p.x], y: [sp.p.y],
                 mode: 'markers',
-                marker: { size: 10, color: color, symbol: 'cross', line: { width: 2, color: color } },
-                name: `Study Point (${sp.side})`,
+                marker: { size: 10, color, symbol: 'cross', line: { width: 2, color } },
+                name: `${sp.side.toUpperCase()} Point`,
                 showlegend: false,
-                hovertemplate: 
-                    `<b>${sp.side.toUpperCase()} Point (${sp.throwType})</b><br>` +
-                    `x: %{x:.2f} mm<br>` +
-                    `y: %{y:.2f} mm<br>` +
-                    `<extra></extra>`
+                hovertemplate: `<b>${sp.side} (${sp.throwType})</b><br>x: %{x:.1f}<br>y: %{y:.1f}<extra></extra>`
             });
 
-            // C. Text Labels
-            const valStatic = sp.rotStaticX !== null ? Math.abs(sp.p.x - sp.rotStaticX).toFixed(2) : '-';
-            const valEnv = sp.envX !== null ? Math.abs(sp.p.x - sp.envX).toFixed(2) : '-';
-            const valStudy = (params.showStudyVehicle && sp.staticStudyX !== null) 
-                ? Math.abs(sp.p.x - sp.staticStudyX).toFixed(2) 
-                : null;
+            // Measurement Lines
+            const addMeasure = (targetX: number | null, name: string, lineColor: string) => {
+                if (targetX === null) return;
+                traces.push({
+                    x: [sp.p.x, targetX], y: [y, y],
+                    mode: 'lines',
+                    line: { color: lineColor, dash: 'dot', width: 1 },
+                    showlegend: false,
+                    hoverinfo: 'text',
+                    text: `${name}: ${Math.abs(sp.p.x - targetX).toFixed(1)}mm`
+                });
+            };
 
-            // Calculate anchor X (outermost point) to avoid overlapping the line
-            let textAnchorX = sp.p.x;
-            if (sp.side === 'left') {
-                if (sp.envX !== null) textAnchorX = Math.min(textAnchorX, sp.envX);
-                if (sp.rotStaticX !== null) textAnchorX = Math.min(textAnchorX, sp.rotStaticX);
-                if (sp.staticStudyX !== null && params.showStudyVehicle) textAnchorX = Math.min(textAnchorX, sp.staticStudyX);
-            } else {
-                if (sp.envX !== null) textAnchorX = Math.max(textAnchorX, sp.envX);
-                if (sp.rotStaticX !== null) textAnchorX = Math.max(textAnchorX, sp.rotStaticX);
-                if (sp.staticStudyX !== null && params.showStudyVehicle) textAnchorX = Math.max(textAnchorX, sp.staticStudyX);
-            }
-            
-            // Offset to create a small gap between the line end and the text
-            const offset = sp.side === 'left' ? -20 : 20;
-
-            let labelHtml = 
-                `<span style="color: #15803d; font-weight:bold;">y:${sp.p.y.toFixed(0)}</span><br>` +
-                `<span style="color: #dc2626; font-weight:bold;">Δ ${sp.throwType} Static: ${valStatic}</span><br>` +
-                `<span style="color: #7e22ce; font-weight:bold;">Δ Env: ${valEnv}</span>`;
-            
-            if (valStudy !== null) {
-                labelHtml += `<br><span style="color: #2563eb; font-weight:bold;">Δ Study: ${valStudy}</span>`;
-            }
-
-            traces.push({
-                x: [textAnchorX + offset],
-                y: [sp.p.y],
-                text: [labelHtml],
-                mode: 'text',
-                type: 'scatter',
-                textposition: sp.side === 'left' ? 'top left' : 'top right',
-                showlegend: false,
-                hoverinfo: 'none',
-                textfont: { size: 11, family: 'Arial, sans-serif' }
-            });
+            addMeasure(sp.envX, 'Δ Env', '#800080');
+            if (params.showStudyVehicle) addMeasure(sp.staticStudyX, 'Δ Veh', '#2563eb');
         });
 
-        // --- 5. Pivot Point ---
+        // 6. Pivot
         traces.push({
-            x: [data.pivot.x],
-            y: [data.pivot.y],
-            mode: 'markers',
-            marker: { size: 12, color: 'black', symbol: 'x' },
-            name: 'Pivot Center',
-            hovertemplate: '<b>Pivot Center</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
+            x: [pivot.x], y: [pivot.y],
+            mode: 'markers', marker: { size: 10, color: 'black', symbol: 'x' },
+            name: 'Pivot', showlegend: false
         });
 
-        // --- Layout ---
+        // Layout
         const layout: Partial<Layout> = {
             autosize: true,
             title: {
-                text: `<b>Vehicle Outline Simulation</b><br><span style="font-size: 12px;">${params.direction === 'cw' ? "Clockwise (Right Turn)" : "Counter-Clockwise (Left Turn)"}</span>`,
+                text: `<b>Simulation Results</b><br><span style="font-size: 12px; color: gray;">Roll: ${calculatedParams.rollUsed.toFixed(2)}° | Bounce: ${params.bounce}mm | Status: ${globalStatus}</span>`,
                 font: { family: 'Arial', size: 18 }
             },
-            font: { family: 'Arial, sans-serif' },
             showlegend: true,
-            legend: { orientation: 'h', y: -0.15, x: 0.5, xanchor: 'center' },
-            xaxis: {
-                title: { text: 'Lateral Position (mm)' },
-                scaleanchor: 'y', // Lock Aspect Ratio 1:1
-                scaleratio: 1,
-                zeroline: true,
-                showgrid: true,
-                gridcolor: '#e5e7eb',
-                zerolinecolor: '#9ca3af'
-            },
-            yaxis: {
-                title: { text: 'Height (mm)' },
-                zeroline: true,
-                showgrid: true,
-                gridcolor: '#e5e7eb',
-                zerolinecolor: '#9ca3af'
-            },
-            hovermode: 'closest',
-            margin: { l: 60, r: 60, b: 80, t: 80 },
-            // Add annotations for summary stats
-            annotations: [
-                {
-                    xref: 'paper', yref: 'paper',
-                    x: 0, y: 1.08,
-                    xanchor: 'left',
-                    text: `Status: <b>${statusText}</b>`,
-                    showarrow: false,
-                    font: { color: data.globalStatus === 'FAIL' ? 'red' : 'green', size: 14 }
-                },
-                {
-                    xref: 'paper', yref: 'paper',
-                    x: 1, y: 1.08,
-                    xanchor: 'right',
-                    text: `Tol Lat: ±${data.calculatedParams.tolLatShift}mm | Roll: ${data.calculatedParams.rollUsed.toFixed(2)}°`,
-                    showarrow: false,
-                    font: { size: 12, color: '#555' }
-                }
-            ]
+            legend: { orientation: 'h', y: -0.1 },
+            margin: { l: 50, r: 50, b: 50, t: 80 },
+            xaxis: { title: 'Lateral (mm)', zeroline: true, scaleanchor: 'y', scaleratio: 1 },
+            yaxis: { title: 'Vertical (mm)', zeroline: true },
+            hovermode: 'closest'
         };
 
         return { plotData: traces, layout };
     }, [data, params]);
 
     return (
-        <div className="w-full h-full bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden relative">
+        <div className="w-full h-full bg-white rounded-lg shadow-lg border border-gray-200">
             <Plot
                 data={plotData}
                 layout={layout}
                 useResizeHandler={true}
                 className="w-full h-full"
-                config={{
-                    displayModeBar: true,
-                    responsive: true,
-                    displaylogo: false,
-                    modeBarButtonsToRemove: ['lasso2d', 'select2d']
-                }}
+                config={{ displayModeBar: true, responsive: true }}
             />
         </div>
     );
