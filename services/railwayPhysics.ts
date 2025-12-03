@@ -257,9 +257,17 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const ys = rawPointsRight.map(p => p.y);
     const maxY = Math.max(...ys);
     
-    // NEW: Calculate Deltas by iterating every 1mm from 0 to maxY
-    // JUST OUTPUT THE ENVX as requested
-    const deltaGraphData = calculateDeltaCurvesIterative(0, maxY, envelopePoly);
+    // Determine the study vehicle throw offset to subtract
+    // If CW (Right Turn): Left is Outer (Subtract ET), Right is Inner (Subtract CT)
+    // If CCW (Left Turn): Left is Inner (Subtract CT), Right is Outer (Subtract ET)
+    const subtractLeft = isCW ? studyThrows.ET : studyThrows.CT;
+    const subtractRight = isCW ? studyThrows.CT : studyThrows.ET;
+
+    // Calculate Deltas by iterating every 1mm from 0 to maxY
+    // Subtracting the study vehicle throw from the envelope width
+    const deltaGraphData = calculateDeltaCurvesIterative(
+        0, maxY, envelopePoly, subtractLeft, subtractRight, halfW
+    );
 
     // 8. Global Status
     let globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
@@ -300,7 +308,10 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
 function calculateDeltaCurvesIterative(
     minY: number, maxY: number, 
-    envelope: Point[]
+    envelope: Point[],
+    subtractLeft: number,
+    subtractRight: number,
+    halfWidth: number
 ): DeltaCurveData {
     const result: DeltaCurveData = { y: [], deltaLeft: [], deltaRight: [] };
 
@@ -312,9 +323,9 @@ function calculateDeltaCurvesIterative(
 
         if (envL !== null && envR !== null) {
             result.y.push(y);
-            // Output absolute X values (Envelope Widths)
-            result.deltaLeft.push(Math.abs(envL)); 
-            result.deltaRight.push(Math.abs(envR));
+            // Output absolute X values (Envelope Widths) minus the Study Vehicle Throw and Half Width
+            result.deltaLeft.push(Math.abs(envL) - subtractLeft - halfWidth); 
+            result.deltaRight.push(Math.abs(envR) - subtractRight - halfWidth);
         }
     }
     return result;
