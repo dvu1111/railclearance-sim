@@ -17,7 +17,7 @@ It enables permanent way engineers and rolling stock engineers to perform real-t
 
 * **Kinematic Envelope Generation**: dynamic calculation of vehicle boundaries using the **Clipper2** polygon clipping engine.
 * **Real-time Physics Engine**: Instantly updates calculations for:
-    * **Geometric Overthrow**: End Throw ($E$) and Center Throw ($C$).
+    * **Geometric Overthrow**: End Throw ($ET$) and Center Throw ($CT$).
     * **Dynamic Roll**: Body rotation due to cant deficiency/excess.
     * **Suspension Effects**: Lateral play and vertical bounce.
 * **Comprehensive Tolerance Sets**: Pre-configured scenarios for:
