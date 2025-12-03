@@ -158,8 +158,8 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     // NOTE: We use REFERENCE throws here to generate the standard envelope
     
     // Function to transform the full shape into a specific state
-    const createTransformedPath = (rollAngle: number, lateralBias: number): Path64 => {
-        return fullStaticShape.map(p => {
+    const createTransformedPath = (shape: Point[], rollAngle: number, lateralBias: number, throwRight: number, throwLeft: number): Path64 => {
+        return shape.map(p => {
             // 1. Bounce (Vertical)
             let y_bounced = p.y;
             if (p.y > params.bounceYThreshold) {
@@ -170,8 +170,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             const rot = getRotatedCoords(p.x, y_bounced, rollAngle, PIVOT_POINT.x, PIVOT_POINT.y);
 
             // 3. Lateral Shift (Geometric Throw + Play + Tolerances) - Add LINEARLY
-            // Use REFERENCE throws for the envelope
-            const geomThrow = (p.x >= 0) ? refThrowShiftRight : refThrowShiftLeft;
+            const geomThrow = (p.x >= 0) ? throwRight : throwLeft;
             const totalLat = lateralBias + geomThrow;
             
             // 4. Apply shift to rotated X
@@ -186,11 +185,11 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
     // State 1: Leaned Left
     const latShiftLeft = -params.latPlay - tolLatShift;
-    const pathLeft = createTransformedPath(rollLeftAngle, latShiftLeft);
+    const pathLeft = createTransformedPath(fullStaticShape, rollLeftAngle, latShiftLeft, refThrowShiftRight, refThrowShiftLeft);
 
     // State 2: Leaned Right
     const latShiftRight = params.latPlay + tolLatShift;
-    const pathRight = createTransformedPath(rollRightAngle, latShiftRight);
+    const pathRight = createTransformedPath(fullStaticShape, rollRightAngle, latShiftRight, refThrowShiftRight, refThrowShiftLeft);
 
     // Superimpose (Union)
     const solution = Clipper.union([pathLeft], [pathRight], FillRule.NonZero);
@@ -210,6 +209,44 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         // Close the loop
         envX.push(envX[0]);
         envY.push(envY[0]);
+    }
+
+    // --- Study Vehicle Outline (New Feature) ---
+    // Define the Study Vehicle Box based on params.w and params.h
+    const halfW = params.w / 2;
+    const studyBox: Point[] = [
+        { x: -halfW, y: 0 },
+        { x: halfW, y: 0 },
+        { x: halfW, y: params.h },
+        { x: -halfW, y: params.h },
+        { x: -halfW, y: 0 } // Close
+    ];
+
+    // Static Study Vehicle (Centered)
+    const staticStudyX = studyBox.map(p => p.x);
+    const staticStudyY = studyBox.map(p => p.y);
+
+    // Dynamic Study Vehicle (Transformed using Study Throws)
+    // We create the union of Left and Right lean states for the Study Vehicle
+    const studyPathLeft = createTransformedPath(studyBox, rollLeftAngle, latShiftLeft, studyThrowShiftRight, studyThrowShiftLeft);
+    const studyPathRight = createTransformedPath(studyBox, rollRightAngle, latShiftRight, studyThrowShiftRight, studyThrowShiftLeft);
+    const studySolution = Clipper.union([studyPathLeft], [studyPathRight], FillRule.NonZero);
+
+    const dynamicStudyX: number[] = [];
+    const dynamicStudyY: number[] = [];
+
+    if (studySolution.length > 0) {
+        const outerStudy = studySolution.reduce((prev, curr) => curr.length > prev.length ? curr : prev, []);
+        outerStudy.forEach(pt => {
+            const p = fromPoint64(pt);
+            dynamicStudyX.push(p.x);
+            dynamicStudyY.push(p.y);
+        });
+        // Close loop
+        if (dynamicStudyX.length > 0) {
+            dynamicStudyX.push(dynamicStudyX[0]);
+            dynamicStudyY.push(dynamicStudyY[0]);
+        }
     }
 
     // --- Static Visualization Data ---
@@ -234,6 +271,9 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     });
 
     // 2. Rotated Static Ghost (Faint Blue)
+    // Uses ref throws? Actually Rotation usually doesn't apply throw in simple viz, but here we want to show the 'rotated static' context
+    // The previous implementation rotated fullStaticShape. Let's keep it but ideally it shouldn't shift if it's just 'rotated'.
+    // However, for consistency with the ghost logic, we keep the previous pure rotation logic:
     const createRotatedStaticPath = (rollAngle: number): Path64 => {
         return fullStaticShape.map(p => {
             const rot = getRotatedCoords(p.x, p.y, rollAngle, PIVOT_POINT.x, PIVOT_POINT.y);
@@ -340,13 +380,20 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const rotStaticX = getXAtY(final_sp_p.y, rotStaticPoly, side);
         const origStaticX = getXAtY(final_sp_p.y, (side === 'right' ? rawPointsRight : rawPointsLeft), side);
 
+        // Position of the static study vehicle edge at this height
+        // Since study vehicle is a box, vertical walls are at +/- w/2.
+        // If y > h, it's above the vehicle, but study points are usually at h.
+        // We use x_base which is w/2 or -w/2.
+        const staticStudyX = x_base;
+
         studyPoints.push({
             p: final_sp_p,
             side,
             throwType,
             rotStaticX,
             origStaticX,
-            envX: envXAtY
+            envX: envXAtY,
+            staticStudyX
         });
     });
 
@@ -377,6 +424,12 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
     return {
         polygons: polyCoords,
+        studyVehicle: {
+            static_x: staticStudyX,
+            static_y: staticStudyY,
+            dynamic_x: dynamicStudyX,
+            dynamic_y: dynamicStudyY
+        },
         studyPoints,
         globalStatus,
         calculatedParams: {
