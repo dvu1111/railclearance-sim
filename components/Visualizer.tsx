@@ -223,83 +223,38 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
 
     // --- SECOND PLOT: DELTA GRAPH ---
     const deltaPlot = useMemo(() => {
-        if (!params.showDeltaGraph) return null;
+        if (!params.showDeltaGraph || !data.deltaGraphData) return null;
 
-        const { deltaGraphData, polygons } = data;
-        
-        // Safety check to prevent undefined errors if data hasn't synced
-        if (!deltaGraphData || !deltaGraphData.y) return null;
-
+        const { deltaGraphData } = data;
         const isCW = params.direction === 'cw';
 
-        // Helper: Interpolate X value for a specific Height Y from polygon arrays
-        const getXAtY = (targetY: number, xs: number[], ys: number[]) => {
-            if (!xs || !ys || xs.length !== ys.length || xs.length === 0) return null;
-            
-            // Iterate through segments
-            for (let i = 0; i < ys.length - 1; i++) {
-                const yA = ys[i];
-                const yB = ys[i+1];
-                
-                // Check if targetY is within the segment [yA, yB] (order doesn't matter)
-                if ((targetY >= yA && targetY <= yB) || (targetY >= yB && targetY <= yA)) {
-                    // Handle horizontal lines or single points
-                    if (Math.abs(yB - yA) < 0.001) {
-                         // Only return if we are basically on the line
-                        return xs[i]; 
-                    }
+        // CW (Right Turn): 
+        //   - Right Side is Inner (CT)
+        //   - Left Side is Outer (ET)
+        // CCW (Left Turn):
+        //   - Right Side is Outer (ET)
+        //   - Left Side is Inner (CT)
 
-                    const ratio = (targetY - yA) / (yB - yA);
-                    return xs[i] + ratio * (xs[i+1] - xs[i]);
-                }
-            }
-            return null; // Y is outside the vertical range of this polygon
-        };
+        // Map data to ET/CT based on curve direction
+        const etData = isCW ? deltaGraphData.deltaLeft : deltaGraphData.deltaRight;
+        const ctData = isCW ? deltaGraphData.deltaRight : deltaGraphData.deltaLeft;
 
-        // Recalculate Deltas: Expansion = |Dynamic Envelope - Rotated Static|
-        // If we use deltaGraphData directly, we might get the "Total Displacement" (approx 318mm),
-        // but we want "Clearance Expansion" (approx 3.75mm).
-        const calculatedDeltas = deltaGraphData.y.map(h => {
-            // --- LEFT SIDE ---
-            const dynX_L = getXAtY(h, polygons.left.x, polygons.left.y);
-            // Use Rotated Static if available, otherwise fallback to Original Static
-            const statX_L = (polygons.left.rot_static_x && polygons.left.rot_static_x.length > 0)
-                ? getXAtY(h, polygons.left.rot_static_x, polygons.left.rot_static_y)
-                : getXAtY(h, polygons.left.static_x, polygons.left.static_y);
-            
-            const deltaL = (dynX_L !== null && statX_L !== null) ? Math.abs(dynX_L - statX_L) : 0;
-
-            // --- RIGHT SIDE ---
-            const dynX_R = getXAtY(h, polygons.right.x, polygons.right.y);
-            const statX_R = (polygons.right.rot_static_x && polygons.right.rot_static_x.length > 0)
-                ? getXAtY(h, polygons.right.rot_static_x, polygons.right.rot_static_y)
-                : getXAtY(h, polygons.right.static_x, polygons.right.static_y);
-
-            const deltaR = (dynX_R !== null && statX_R !== null) ? Math.abs(dynX_R - statX_R) : 0;
-
-            return { h, deltaL, deltaR };
-        });
-
-        // Map data to ET/CT based on direction using the RECALCULATED values
-        // CW (Right Turn): Left side = ET (Outer), Right side = CT (Inner)
-        // CCW (Left Turn): Left side = CT (Inner), Right side = ET (Outer)
-        const etData = isCW ? calculatedDeltas.map(d => d.deltaL) : calculatedDeltas.map(d => d.deltaR);
-        const ctData = isCW ? calculatedDeltas.map(d => d.deltaR) : calculatedDeltas.map(d => d.deltaL);
-
+        // X-axis = Height (iterated from 0 to vehicle top)
+        // Y-axis = Delta Value (Expansion amount)
         const traces: Data[] = [
             {
-                x: deltaGraphData.y, // Height on X-axis (Iterates Height)
-                y: etData,           // Delta on Y-axis
-                name: 'ET Delta Env', // End Throw Side
+                x: deltaGraphData.y, // Height
+                y: etData,           // ET Delta
+                name: 'ET (End Throw)', 
                 type: 'scatter',
                 mode: 'lines',
                 line: { color: '#059669', width: 2 }, // Green
                 hovertemplate: 'Height: %{x:.0f}mm<br>ET Delta: %{y:.2f}mm<extra></extra>'
             },
             {
-                x: deltaGraphData.y, // Height on X-axis
-                y: ctData,           // Delta on Y-axis
-                name: 'CT Delta Env', // Center Throw Side
+                x: deltaGraphData.y, // Height
+                y: ctData,           // CT Delta
+                name: 'CT (Center Throw)', 
                 type: 'scatter',
                 mode: 'lines',
                 line: { color: '#d946ef', width: 2 }, // Magenta

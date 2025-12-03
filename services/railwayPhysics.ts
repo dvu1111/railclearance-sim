@@ -256,7 +256,10 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     // 7. Calculate Delta Curve Data (Clearance Deviation)
     const ys = rawPointsRight.map(p => p.y);
     const maxY = Math.max(...ys);
-    const deltaGraphData = calculateDeltaCurves(0, maxY, envelopePoly, rawPointsLeft, rawPointsRight);
+    
+    // NEW: Calculate Deltas by iterating every 1mm from 0 to maxY
+    // JUST OUTPUT THE ENVX as requested
+    const deltaGraphData = calculateDeltaCurvesIterative(0, maxY, envelopePoly);
 
     // 8. Global Status
     let globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
@@ -295,30 +298,23 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     };
 }
 
-function calculateDeltaCurves(
+function calculateDeltaCurvesIterative(
     minY: number, maxY: number, 
-    envelope: Point[], 
-    staticLeft: Point[], staticRight: Point[]
+    envelope: Point[]
 ): DeltaCurveData {
-    const step = 20; // 20mm steps for graph resolution
     const result: DeltaCurveData = { y: [], deltaLeft: [], deltaRight: [] };
-    
-    // We iterate bottom to top
-    for (let y = minY; y <= maxY; y += step) {
-        // Calculate lateral positions at height y
-        const envL = getXAtY(y, envelope, 'left');
-        const staticL = getXAtY(y, staticLeft, 'left');
-        
-        const envR = getXAtY(y, envelope, 'right');
-        const staticR = getXAtY(y, staticRight, 'right');
 
-        // Only record if we found valid intersections on both boundaries at this height
-        if (envL !== null && staticL !== null && envR !== null && staticR !== null) {
+    // Iterate 1mm steps from 0 to Max Height
+    for (let y = minY; y <= maxY; y += 1) {
+        // Get Envelope Boundary at this height
+        const envL = getXAtY(y, envelope, 'left');
+        const envR = getXAtY(y, envelope, 'right');
+
+        if (envL !== null && envR !== null) {
             result.y.push(y);
-            // Delta is absolute difference |Dynamic - Static|
-            // This represents the "Expansion" or "Throw" at this height
-            result.deltaLeft.push(Math.abs(envL - staticL)); 
-            result.deltaRight.push(Math.abs(envR - staticR));
+            // Output absolute X values (Envelope Widths)
+            result.deltaLeft.push(Math.abs(envL)); 
+            result.deltaRight.push(Math.abs(envR));
         }
     }
     return result;
