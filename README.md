@@ -1,133 +1,137 @@
 # RailClearance Sim
 
-**RailClearance Sim** is a simulation tool designed to compute and visualize the kinematic envelope of rail vehicles negotiating horizontal curves. The application provides real-time analysis of geometric overthrows, dynamic body movements, and clearance tolerances, enabling rapid assessment of vehicle-structure gauging compliance.
+![Version](https://img.shields.io/badge/version-0.0.0-blue.svg?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)
+![React](https://img.shields.io/badge/React-19-Tk.svg?style=flat-square&logo=react&color=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg?style=flat-square&logo=typescript)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38B2AC.svg?style=flat-square&logo=tailwind-css)
+![Vite](https://img.shields.io/badge/Vite-6.0-646CFF.svg?style=flat-square&logo=vite)
 
-## Overview
+**RailClearance Sim** is a high-precision engineering simulation tool designed to compute and visualize the kinematic envelope of rail vehicles negotiating horizontal curves. 
 
-This software models the transformation of a static vehicle profile into a dynamic kinematic envelope. It accounts for geometric displacement (End Throw and Center Throw), vehicle suspension dynamics (roll, bounce, lateral play), and track infrastructure tolerances. The tool allows engineers to evaluate clearance scenarios against predefined track standards and vehicle classes.
+It enables permanent way engineers and rolling stock engineers to perform real-time clearance assessments, visualizing the complex interaction between vehicle geometry, track curvature, and dynamic suspension movements.
 
-## Technical Capabilities
+---
 
-### Geometric Calculation
+## 🚀 Key Features
 
-The system calculates geometric overthrow based on vehicle wheelbase and total length relative to the curve radius. It computes:
+* **Kinematic Envelope Generation**: dynamic calculation of vehicle boundaries using the **Clipper2** polygon clipping engine.
+* **Real-time Physics Engine**: Instantly updates calculations for:
+    * **Geometric Overthrow**: End Throw ($E$) and Center Throw ($C$).
+    * **Dynamic Roll**: Body rotation due to cant deficiency/excess.
+    * **Suspension Effects**: Lateral play and vertical bounce.
+* **Comprehensive Tolerance Sets**: Pre-configured scenarios for:
+    * Ballasted Open Track
+    * Fixed (Slab) Track
+    * Fouling Points
+* **Interactive Visualization**: 
+    * Zoomable/pannable canvas using `Plotly.js`.
+    * Visual comparison of Static vs. Kinematic profiles.
+    * "Study Point" analysis for specific gauging critical points.
+* **Vehicle Library**: Includes standard reference outlines (e.g., RS1.1, RS4.1, RS6).
 
-* **End Throw (E):** The external excursion of the vehicle ends (overhang).
+---
 
-* **Center Throw (C):** The internal excursion of the vehicle center (chord).
+## 🛠️ Tech Stack
 
-### Dynamic Simulation
+* **Core**: [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
+* **Build Tool**: [Vite](https://vitejs.dev/)
+* **Styling**: [Tailwind CSS](https://tailwindcss.com/)
+* **Visualization**: [Plotly.js](https://plotly.com/javascript/) (`react-plotly.js`)
+* **Math & Geometry**: Custom Physics Engine + [Clipper2-ts](https://github.com/AngusJohnson/Clipper2) (Ported)
 
-The physics engine integrates dynamic factors to generate the final envelope coordinates:
+---
 
-* **Vehicle Body Roll:** Rotational displacement around the roll center (`h_roll`), accounting for cant deficiency or excess.
+## 📐 Mathematical Framework
 
-* **Lateral Play:** Transverse movement of the wheelset and body relative to the track centerline.
+The simulation pipeline transforms a static vehicle profile into a dynamic envelope through the following stages:
 
-* **Vertical Bounce:** Vertical displacement applied to the vehicle profile to simulate suspension travel.
+1.  **Geometric Throw Calculation**:
+    Approximated using the versine formula based on the vehicle's rigid wheelbase ($B$) and overall length ($L$):
+    $$Throw \approx \frac{L^2 - B^2}{8R}$$
 
-### Tolerance Management
+2.  **Coordinate Transformation**:
+    Points are translated and rotated based on the aggregate of track tolerances and vehicle dynamics:
+    * **Lateral Translation ($T_y$):** $Throw + LatPlay + \sum Tolerances_{lat}$
+    * **Vertical Translation ($T_z$):** $Bounce + \sum Tolerances_{vert}$
+    * **Rotation ($\theta$):** Rotated around the Roll Center ($h_{roll}$) accounting for applied cant and roll tolerances.
 
-The application supports configurable tolerance sets for various track forms, including:
+3.  **Envelope Construction**:
+    The system generates two polygon states (leaning left and leaning right). The final kinematic envelope is the **Union** of these two states computed via the Clipper2 boolean operation library.
 
-* Ballasted Open Track
+---
 
-* Ballasted Track (Prescribed)
-
-* Fixed Track (Slab)
-
-* Fouling Points
-
-These tolerances (Lateral, Vertical, Cant, Gauge Widening) are aggregated and applied to the kinematic simulation to determine the worst-case envelope.
-
-## Mathematical Framework
-
-The core simulation logic resides in `services/railwayPhysics.ts`. The coordinate transformation pipeline proceeds as follows:
-
-1. **Geometric Throw:** Approximated using the versine formula based on the vehicle's rigid wheelbase ($B$) and overall length ($L$):
-
-   $$
-   Throw \approx \frac{L^2 - B^2}{8R}
-   $$
-
-2. **Translation:** Points are translated laterally by the sum of the calculated throw, lateral play, and track lateral tolerances.
-
-3. **Vertical Adjustment:** Vertical bounce is applied to coordinates exceeding a defined Y-threshold.
-
-4. **Rotation:** The transformed profile is rotated around the defined Pivot Point (0, 1100) to account for vehicle roll and track cant tolerances.
-
-5. **Envelope Generation:** The system computes the maximum excursion of the rotated profile to define the dynamic boundary.
-
-## Installation and Setup
+## ⚡ Getting Started
 
 ### Prerequisites
 
 * Node.js (v20 or higher recommended)
+* npm or yarn
 
-* npm or yarn package manager
+### Installation
 
-### Build Instructions
+1.  **Clone the repository**
+    ```bash
+    git clone [https://github.com/dvu1111/railclearance-sim.git](https://github.com/dvu1111/railclearance-sim.git)
+    cd railclearance-sim
+    ```
 
-1. **Clone the Repository:**
+2.  **Install dependencies**
+    ```bash
+    npm ci
+    ```
 
-   ```
-   git clone [https://github.com/dvu1111/railclearance-sim.git](https://github.com/dvu1111/railclearance-sim.git)
-   cd railclearance-sim
-   ```
+3.  **Start the development server**
+    ```bash
+    npm run dev
+    ```
+    Open your browser to `http://localhost:3000` to view the application.
 
-2. **Install Dependencies:**
+4.  **Build for production**
+    ```bash
+    npm run build
+    ```
 
-   ```
-   npm ci
-   ```
+---
 
-3. **Execute Development Environment:**
+## 🖥️ Usage Guide
 
-   ```
-   npm run dev
-   ```
+### Control Panel
+Located on the left sidebar, use this to configure the simulation environment:
 
-   Access the application at `http://localhost:3000`.
+| Section | Parameter | Description |
+| :--- | :--- | :--- |
+| **Geometry** | Radius ($R$) | Horizontal curve radius in meters. |
+| | Applied Cant | Superelevation of the track in mm. |
+| **Vehicle** | Dimensions | Define Length ($L$), Bogie Centers ($B$), and profile dimensions. |
+| | Reference Outline | Select from presets (e.g., `RS4.1`, `RS6`) defined in `constants.ts`. |
+| **Dynamics** | Roll | Body roll angle in degrees. |
+| | Bounce | Vertical suspension travel in mm. |
+| **Tolerances** | Track Scenario | Select preset tolerance standards (e.g., "Ballasted Open"). |
 
-4. **Production Build:**
-   To generate static assets for deployment:
+### Visualizer
+The main view provides a cross-section of the vehicle and track:
+* **Blue Line**: Original Static Profile.
+* **Dotted Blue**: Static profile rotated by roll angle (ghost).
+* **Filled Area**: The final computed Dynamic Kinematic Envelope.
+* **Markers**: "Study Points" indicating critical clearance checks on the vehicle corners.
 
-   ```
-   npm run build
-   ```
+---
 
-## Configuration and Parameters
+## wm Project Structure
 
-The application utilizes a parametric control panel to define the simulation environment. Key engineering parameters include:
-
-* **Geometry:**
-
-  * **Radius (R):** Horizontal curve radius (meters).
-
-  * **Curve Direction:** Clockwise (Right) or Counter-Clockwise (Left).
-
-* **Vehicle Data:**
-
-  * **Dimensions:** Length (`L_veh`) and Bogie Centers (`B_veh`).
-
-  * **Reference Profile:** Selectable outlines (e.g., RS4.1) defined in `constants.ts`.
-
-* **Dynamics & Tolerances:**
-
-  * **Roll:** Body roll angle (degrees).
-
-  * **Lateral Play:** Allowable lateral shift (mm).
-
-  * **Bounce:** Vertical suspension allowance (mm).
-
-  * **Track Scenario:** Presets for tolerances (e.g., `lat_gt_1000` vs `lat_lte_1000`) based on curve radius regimes.
-
-## Project Architecture
-
-* **`services/railwayPhysics.ts`:** Contains the primary algorithm for geometric throw calculation, coordinate transformation, and point-in-polygon analysis.
-
-* **`components/Visualizer.tsx`:** Handles the canvas-based rendering of the static profile (blue), rotated static profile (dotted), and the dynamic envelope (filled polygon). It also visualizes specific study points and delta measurements.
-
-* **`constants.ts`:** Stores static definitions for vehicle outlines (`VehicleOutlineData`) and track tolerance standards (`TRACK_TOLERANCES`).
-
-* **`types.ts`:** Defines TypeScript interfaces for simulation parameters and computation results.
+```bash
+src/
+├── components/       # UI Components
+│   ├── ControlPanel.tsx  # Input form for simulation parameters
+│   └── Visualizer.tsx    # Plotly chart rendering
+├── hooks/            # Custom React Hooks
+│   └── useSimulation.tsx # Central logic binding state to physics
+├── lib/              # External Libraries
+│   └── clipper2-ts/      # Polygon clipping engine (Union/Offset)
+├── services/         # Business Logic
+│   └── railwayPhysics.ts # Core math, coordinate transformations
+├── types.ts          # TypeScript interfaces
+├── constants.ts      # Vehicle datasets and Tolerance presets
+├── App.tsx           # Main application layout
+└── index.css         # Tailwind global styles
