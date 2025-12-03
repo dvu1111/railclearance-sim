@@ -286,8 +286,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams }) => {
                 title="Apply bounce only to points above this Y height"
               />
           </div>
-          {/* New Checkbox for Y-Rotation */}
-          <div className="flex items-center gap-2 px-1 pt-2">
+      </div>
+
+      {/* Display Options */}
+      <div className="bg-white border border-gray-300 p-2 mb-4 rounded">
+          <div className="font-bold text-gray-800 mb-2 border-b border-gray-200 pb-1">Display Options</div>
+          {/* Checkbox for Y-Rotation */}
+          <div className="flex items-center gap-2 px-1 pt-1">
               <input
                   type="checkbox"
                   id="chkYRotation"
@@ -296,6 +301,17 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams }) => {
                   className="w-4 h-4 cursor-pointer"
               />
               <label htmlFor="chkYRotation" className="text-xs font-bold text-gray-700 cursor-pointer select-none">Consider Y-Rotation</label>
+          </div>
+          {/* Checkbox for Study Vehicle Outline */}
+          <div className="flex items-center gap-2 px-1 pt-2">
+              <input
+                  type="checkbox"
+                  id="chkShowStudyVeh"
+                  checked={params.showStudyVehicle}
+                  onChange={(e) => handleChange('showStudyVehicle', e.target.checked)}
+                  className="w-4 h-4 cursor-pointer"
+              />
+              <label htmlFor="chkShowStudyVeh" className="text-xs font-bold text-gray-700 cursor-pointer select-none">Show Study Vehicle</label>
           </div>
       </div>
       

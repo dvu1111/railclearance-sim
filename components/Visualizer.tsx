@@ -94,6 +94,31 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             hovertemplate: '<b>Original Static</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
         });
 
+        // --- New Feature: Study Vehicle Outline (Static & Dynamic) ---
+        if (params.showStudyVehicle) {
+            // Static Study Vehicle (Gray Dashed)
+            traces.push({
+                x: data.studyVehicle.static_x,
+                y: data.studyVehicle.static_y,
+                mode: 'lines',
+                line: { color: '#4b5563', dash: 'dash', width: 1.5 },
+                name: 'Static Study Veh',
+                hoverinfo: 'skip'
+            });
+
+            // Dynamic Study Vehicle (Orange Dot)
+            if (data.studyVehicle.dynamic_x.length > 0) {
+                traces.push({
+                    x: data.studyVehicle.dynamic_x,
+                    y: data.studyVehicle.dynamic_y,
+                    mode: 'lines',
+                    line: { color: '#f97316', dash: 'dot', width: 1.5 },
+                    name: 'Dynamic Study Veh',
+                    hoverinfo: 'skip'
+                });
+            }
+        }
+
         // --- 4. Study Points and Measurements ---
         data.studyPoints.forEach((sp, idx) => {
             const y = sp.p.y;
@@ -117,7 +142,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 });
             }
 
-            // Delta to Static
+            // Delta to Static (Reference)
             if (sp.rotStaticX !== null) {
                 const dist = Math.abs(sp.p.x - sp.rotStaticX);
                 traces.push({
@@ -130,6 +155,22 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                     showlegend: idx === 0,
                     hoverinfo: 'text',
                     text: `Δ Static: ${dist.toFixed(2)}mm`
+                });
+            }
+
+            // New: Delta to Static Study Vehicle
+            if (params.showStudyVehicle && sp.staticStudyX !== null) {
+                const dist = Math.abs(sp.p.x - sp.staticStudyX);
+                traces.push({
+                    x: [sp.p.x, sp.staticStudyX],
+                    y: [y, y],
+                    mode: 'lines',
+                    line: { color: '#2563eb', dash: 'dot', width: 1 },
+                    name: 'Δ Study Veh',
+                    legendgroup: 'delta_study',
+                    showlegend: idx === 0,
+                    hoverinfo: 'text',
+                    text: `Δ Study Veh (${sp.throwType}): ${dist.toFixed(2)}mm`
                 });
             }
 
@@ -151,24 +192,33 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             // C. Text Labels
             const valStatic = sp.rotStaticX !== null ? Math.abs(sp.p.x - sp.rotStaticX).toFixed(2) : '-';
             const valEnv = sp.envX !== null ? Math.abs(sp.p.x - sp.envX).toFixed(2) : '-';
+            const valStudy = (params.showStudyVehicle && sp.staticStudyX !== null) 
+                ? Math.abs(sp.p.x - sp.staticStudyX).toFixed(2) 
+                : null;
 
             // Calculate anchor X (outermost point) to avoid overlapping the line
             let textAnchorX = sp.p.x;
             if (sp.side === 'left') {
                 if (sp.envX !== null) textAnchorX = Math.min(textAnchorX, sp.envX);
                 if (sp.rotStaticX !== null) textAnchorX = Math.min(textAnchorX, sp.rotStaticX);
+                if (sp.staticStudyX !== null && params.showStudyVehicle) textAnchorX = Math.min(textAnchorX, sp.staticStudyX);
             } else {
                 if (sp.envX !== null) textAnchorX = Math.max(textAnchorX, sp.envX);
                 if (sp.rotStaticX !== null) textAnchorX = Math.max(textAnchorX, sp.rotStaticX);
+                if (sp.staticStudyX !== null && params.showStudyVehicle) textAnchorX = Math.max(textAnchorX, sp.staticStudyX);
             }
             
             // Offset to create a small gap between the line end and the text
             const offset = sp.side === 'left' ? -20 : 20;
 
-            const labelHtml = 
+            let labelHtml = 
                 `<span style="color: #15803d; font-weight:bold;">y:${sp.p.y.toFixed(0)}</span><br>` +
                 `<span style="color: #dc2626; font-weight:bold;">Δ ${sp.throwType} Static: ${valStatic}</span><br>` +
                 `<span style="color: #7e22ce; font-weight:bold;">Δ Env: ${valEnv}</span>`;
+            
+            if (valStudy !== null) {
+                labelHtml += `<br><span style="color: #2563eb; font-weight:bold;">Δ Study: ${valStudy}</span>`;
+            }
 
             traces.push({
                 x: [textAnchorX + offset],
