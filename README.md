@@ -13,7 +13,7 @@ It enables permanent way engineers and rolling stock engineers to perform real-t
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
 * **Kinematic Envelope Generation**: dynamic calculation of vehicle boundaries using the **Clipper2** polygon clipping engine.
 * **Real-time Physics Engine**: Instantly updates calculations for:
@@ -32,7 +32,7 @@ It enables permanent way engineers and rolling stock engineers to perform real-t
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 * **Core**: [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
 * **Build Tool**: [Vite](https://vitejs.dev/)
@@ -42,34 +42,38 @@ It enables permanent way engineers and rolling stock engineers to perform real-t
 
 ---
 
-## 📐 Mathematical Framework
+## Mathematical Framework
 
 The simulation pipeline transforms a static vehicle profile into a dynamic envelope through the following stages:
 
 1.  **Geometric Throw Calculation**:
     Approximated using the versine formula based on the vehicle's rigid wheelbase ($B$) and overall length ($L$):
-    **End Throw** $\approx \frac{L^2 - B^2}{8R}$ **and** **Centre Throw** $\approx \frac{B^2}{8R}$
+    **End Throw** $\approx \frac{L^2 - B^2}{8R}$
+    **and** **Centre Throw** $\approx \frac{B^2}{8R}$
+
     An option also is there to get the exact throws:
-    $$
-ET_{\text{exact}} = \sqrt{R^2 - \left(\frac{B}{2}\right)^2} - \sqrt{R^2 - \left(\frac{L}{2}\right)^2}
-$$
-    $$
-CT_{\text{exact}} = R - \sqrt{R^2 - \left(\frac{B}{2}\right)^2}
-$$
+    
+   $$
+   ET_{\text{exact}} = \sqrt{R^2 - \left(\frac{B}{2}\right)^2} - \sqrt{R^2 - \left(\frac{L}{2}\right)^2}
+   $$
+
+   $$
+   CT_{\text{exact}} = R - \sqrt{R^2 - \left(\frac{B}{2}\right)^2}
+   $$
     
 
-3.  **Coordinate Transformation**:
+23.  **Coordinate Transformation**:
     Points are translated and rotated based on the aggregate of track tolerances and vehicle dynamics:
     * **Lateral Translation ($T_y$):** $Throw + LatPlay + \sum Tolerances_{lat}$
     * **Vertical Translation ($T_z$):** $Bounce + \sum Tolerances_{vert}$
     * **Rotation ($\theta$):** Rotated around the Roll Center ($h_{roll}$) accounting for applied cant and roll tolerances.
 
-4.  **Envelope Construction**:
+3.  **Envelope Construction**:
     The system generates two polygon states (leaning left and leaning right). The final kinematic envelope is the **Union** of these two states computed via the Clipper2 boolean operation library.
 
 ---
 
-## ⚡ Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -102,7 +106,7 @@ $$
 
 ---
 
-## 🖥️ Usage Guide
+## Usage Guide
 
 ### Control Panel
 Located on the left sidebar, use this to configure the simulation environment:
