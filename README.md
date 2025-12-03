@@ -1,6 +1,6 @@
 # RailClearance Sim
 
-![Version](https://img.shields.io/badge/version-0.0.0-blue.svg?style=flat-square)
+![Version](https://img.shields.io/badge/version-8.1.0-blue.svg?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)
 ![React](https://img.shields.io/badge/React-19-Tk.svg?style=flat-square&logo=react&color=61DAFB)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg?style=flat-square&logo=typescript)
