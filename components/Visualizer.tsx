@@ -127,8 +127,9 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             showlegend: true,
             legend: { orientation: 'h', y: -0.1 },
             margin: { l: 50, r: 50, b: 50, t: 80 },
-            xaxis: { title: 'Lateral (mm)', zeroline: true, scaleanchor: 'y', scaleratio: 1 },
-            yaxis: { title: 'Vertical (mm)', zeroline: true },
+            // FIX: Use object structure for axis titles to match Partial<DataTitle>
+            xaxis: { title: { text: 'Lateral (mm)' }, zeroline: true, scaleanchor: 'y', scaleratio: 1 },
+            yaxis: { title: { text: 'Vertical (mm)' }, zeroline: true },
             hovermode: 'closest'
         };
 
