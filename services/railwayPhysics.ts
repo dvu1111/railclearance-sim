@@ -1,5 +1,5 @@
 import { OUTLINE_DATA_SETS } from "../constants";
-import { Point, SimulationParams, SimulationResult, StudyPointResult, PolyCoords } from "../types";
+import { Point, SimulationParams, SimulationResult, StudyPointResult, PolyCoords, DeltaCurveData } from "../types";
 import { Clipper, Path64, Point64, FillRule } from "../lib/clipper2-ts/index";
 
 // --- Constants & Helpers ---
@@ -253,7 +253,12 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         envelopePoly, rotStaticX, rotStaticY, isCW
     );
 
-    // 7. Global Status
+    // 7. Calculate Delta Curve Data (Clearance Deviation)
+    const ys = rawPointsRight.map(p => p.y);
+    const maxY = Math.max(...ys);
+    const deltaGraphData = calculateDeltaCurves(0, maxY, envelopePoly, rawPointsLeft, rawPointsRight);
+
+    // 8. Global Status
     let globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
     if (studyPoints.length > 0) {
         if (studyPoints.some(sp => sp.status === 'FAIL')) globalStatus = 'FAIL';
@@ -278,6 +283,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             dynamic_x: dynamicStudyX, dynamic_y: dynamicStudyY
         },
         studyPoints,
+        deltaGraphData,
         globalStatus,
         calculatedParams: {
             rollUsed: params.roll,
@@ -287,6 +293,35 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         },
         pivot
     };
+}
+
+function calculateDeltaCurves(
+    minY: number, maxY: number, 
+    envelope: Point[], 
+    staticLeft: Point[], staticRight: Point[]
+): DeltaCurveData {
+    const step = 20; // 20mm steps for graph resolution
+    const result: DeltaCurveData = { y: [], deltaLeft: [], deltaRight: [] };
+    
+    // We iterate bottom to top
+    for (let y = minY; y <= maxY; y += step) {
+        // Calculate lateral positions at height y
+        const envL = getXAtY(y, envelope, 'left');
+        const staticL = getXAtY(y, staticLeft, 'left');
+        
+        const envR = getXAtY(y, envelope, 'right');
+        const staticR = getXAtY(y, staticRight, 'right');
+
+        // Only record if we found valid intersections on both boundaries at this height
+        if (envL !== null && staticL !== null && envR !== null && staticR !== null) {
+            result.y.push(y);
+            // Delta is absolute difference |Dynamic - Static|
+            // This represents the "Expansion" or "Throw" at this height
+            result.deltaLeft.push(Math.abs(envL - staticL)); 
+            result.deltaRight.push(Math.abs(envR - staticR));
+        }
+    }
+    return result;
 }
 
 function calculateStudyPoints(
