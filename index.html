@@ -4,33 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RailClearance Sim</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-      /* Ensure full height for the root */
-      html, body, #root {
-        height: 100%;
-        margin: 0;
-        overflow: hidden;
-      }
-    </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "path": "https://aistudiocdn.com/path@^0.12.7",
-    "vite": "https://aistudiocdn.com/vite@^7.2.6",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
-    "react-plotly.js": "https://aistudiocdn.com/react-plotly.js@^2.6.0",
-    "plotly.js": "https://aistudiocdn.com/plotly.js@^3.3.0"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
+    <!-- Tailwind is now injected via the build process in index.css -->
+  </head>
   <body>
     <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <script type="module" src="/index.tsx"></script>
+  </body>
 </html>

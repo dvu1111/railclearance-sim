@@ -69,6 +69,7 @@ export interface StudyPointResult {
   origStaticX: number | null;
   envX: number | null;
   staticStudyX: number | null; // New: X position of the static study vehicle edge
+  status: 'PASS' | 'FAIL' | 'BOUNDARY';
 }
 
 export interface PolyCoords {

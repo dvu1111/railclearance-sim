@@ -1,323 +1,228 @@
-import React, { useEffect } from 'react';
-import { SimulationParams, ToleranceSet } from '../types';
-import { TRACK_TOLERANCES, OUTLINE_DATA_SETS } from '../constants';
+import React from 'react';
+import { SimulationParams } from '../types';
+import { OUTLINE_DATA_SETS } from '../constants';
 
 interface ControlPanelProps {
   params: SimulationParams;
-  setParams: React.Dispatch<React.SetStateAction<SimulationParams>>;
+  onUpdate: (updates: Partial<SimulationParams>) => void;
 }
 
-const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams }) => {
+const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate }) => {
 
-  const handleChange = (field: keyof SimulationParams, value: any) => {
-    setParams(prev => ({ ...prev, [field]: value }));
+  const handleNum = (field: keyof SimulationParams, val: string) => {
+    const num = parseFloat(val);
+    if (!isNaN(num)) onUpdate({ [field]: num });
   };
 
-  const handleOutlineChange = (id: string) => {
-    const data = OUTLINE_DATA_SETS[id];
-    setParams(prev => ({
-      ...prev,
-      outlineId: id,
-      L_outline: data.L,
-      B_outline: data.B
-    }));
+  const handleStr = (field: keyof SimulationParams, val: string) => {
+    onUpdate({ [field]: val });
   };
 
-  // Sync tolerances when presets change
-  useEffect(() => {
-    if (params.enableTolerances) {
-      const data: ToleranceSet | undefined = TRACK_TOLERANCES[params.trackScenario];
-      if (data) {
-        const lat = (params.radiusScenario === 'gt_1000') ? data.lat_gt_1000 : data.lat_lte_1000;
-        setParams(prev => ({
-          ...prev,
-          tol_lat: lat,
-          tol_vert: data.vert,
-          tol_cant: data.cant,
-          tol_gw: data.gw
-        }));
-      }
-    }
-  }, [params.enableTolerances, params.trackScenario, params.radiusScenario, setParams]);
+  const handleBool = (field: keyof SimulationParams, val: boolean) => {
+    onUpdate({ [field]: val });
+  };
 
   return (
-    <div className="h-full overflow-y-auto p-4 bg-gray-50 border-r border-gray-200 shadow-sm text-sm">
+    <div className="h-full overflow-y-auto p-4 bg-gray-50 text-sm">
       <h1 className="text-xl font-bold mb-4 text-gray-900">Input Parameters</h1>
 
-      {/* Geometry Section */}
-      <div className="bg-white border border-gray-300 p-2 mb-4 rounded">
-        <div className="font-bold text-gray-800 mb-2 border-b border-gray-200 pb-1">Track Geometry</div>
+      {/* Geometry */}
+      <section className="bg-white border border-gray-300 p-3 mb-4 rounded shadow-sm">
+        <h3 className="font-bold text-gray-800 mb-2 border-b pb-1">Track Geometry</h3>
         
-        {/* Radius */}
         <div className="flex items-center gap-2 mb-2">
-          <span className="font-bold mr-auto text-gray-700">Radius (R) [m]</span>
+          <label className="font-bold text-gray-700 flex-1">Radius (R) [m]</label>
           <input
             type="number"
             value={params.radius}
-            onChange={(e) => handleChange('radius', parseFloat(e.target.value))}
-            className="border border-gray-300 rounded px-2 py-1 w-24 text-right focus:border-blue-500 outline-none"
+            onChange={(e) => handleNum('radius', e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1 w-24 text-right focus:ring-1 focus:ring-blue-500 outline-none"
           />
         </div>
 
-        {/* Applied Cant */}
         <div className="flex items-center gap-2">
-          <span className="font-bold mr-auto text-gray-700">Applied Cant [mm]</span>
+          <label className="font-bold text-gray-700 flex-1">Applied Cant [mm]</label>
           <input
             type="number"
             value={params.appliedCant}
-            onChange={(e) => handleChange('appliedCant', parseFloat(e.target.value))}
-            className="border border-blue-300 bg-blue-50 rounded px-2 py-1 w-24 text-right focus:border-blue-500 outline-none font-bold text-blue-900"
-            title="Design superelevation of the track"
+            onChange={(e) => handleNum('appliedCant', e.target.value)}
+            className="border border-blue-300 bg-blue-50 rounded px-2 py-1 w-24 text-right font-bold text-blue-900"
           />
         </div>
-      </div>
+      </section>
 
-      {/* Vehicle Dims */}
-      <div className="bg-white border border-gray-300 p-2 mb-4 rounded space-y-2">
-        <div className="font-bold text-gray-800 mb-2 border-b border-gray-200 pb-1">Vehicle Dimensions</div>
-        <div className="flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-1">
-            <label className="font-bold text-gray-500 w-12 text-right">L_veh</label>
-            <input
-              type="number"
-              value={params.L_veh}
-              onChange={(e) => handleChange('L_veh', parseFloat(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 w-full text-right focus:border-blue-500 outline-none"
-            />
-          </div>
-          <div className="flex-1 flex items-center gap-1">
-            <label className="font-bold text-gray-500 w-12 text-right">B_veh</label>
-            <input
-              type="number"
-              value={params.B_veh}
-              onChange={(e) => handleChange('B_veh', parseFloat(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 w-full text-right focus:border-blue-500 outline-none"
-            />
-          </div>
+      {/* Vehicle Dimensions */}
+      <section className="bg-white border border-gray-300 p-3 mb-4 rounded shadow-sm">
+        <h3 className="font-bold text-gray-800 mb-2 border-b pb-1">Vehicle Dimensions</h3>
+        <div className="grid grid-cols-2 gap-2">
+            {[
+                { label: 'L_veh', key: 'L_veh' },
+                { label: 'B_veh', key: 'B_veh' },
+                { label: 'Height (h)', key: 'h' },
+                { label: 'Width (w)', key: 'w' }
+            ].map(({ label, key }) => (
+                <div key={key} className="flex flex-col">
+                    <label className="text-xs font-bold text-gray-500">{label}</label>
+                    <input
+                        type="number"
+                        value={params[key as keyof SimulationParams] as number}
+                        onChange={(e) => handleNum(key as keyof SimulationParams, e.target.value)}
+                        className="border border-gray-300 rounded px-2 py-1 text-right"
+                    />
+                </div>
+            ))}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-1">
-            <label className="font-bold text-gray-500 w-12 text-right">h</label>
-            <input
-              type="number"
-              value={params.h}
-              onChange={(e) => handleChange('h', parseFloat(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 w-full text-right focus:border-blue-500 outline-none"
-            />
-          </div>
-          <div className="flex-1 flex items-center gap-1">
-            <label className="font-bold text-gray-500 w-12 text-right">w</label>
-            <input
-              type="number"
-              value={params.w}
-              onChange={(e) => handleChange('w', parseFloat(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 w-full text-right focus:border-blue-500 outline-none"
-            />
-          </div>
-        </div>
-      </div>
+      </section>
 
-      {/* Outline Selection */}
-      <div className="bg-white border border-gray-300 p-2 mb-4 rounded">
-        <div className="font-bold text-gray-800 mb-2 border-b border-gray-200 pb-1">Outline Selection</div>
-        <div className="flex flex-col gap-2 mb-2">
-          <label className="text-xs font-bold text-gray-500">Select Model:</label>
+      {/* Reference Outline */}
+      <section className="bg-white border border-gray-300 p-3 mb-4 rounded shadow-sm">
+        <h3 className="font-bold text-gray-800 mb-2 border-b pb-1">Reference Outline</h3>
+        <div className="mb-2">
+          <label className="block text-xs font-bold text-gray-500 mb-1">Select Model:</label>
           <select
             value={params.outlineId}
-            onChange={(e) => handleOutlineChange(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded bg-white outline-none"
+            onChange={(e) => handleStr('outlineId', e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded bg-white"
           >
-            {Object.keys(OUTLINE_DATA_SETS).map(key => {
-               const d = OUTLINE_DATA_SETS[key];
-               return <option key={key} value={key}>{key} (L={d.L}, B={d.B})</option>
-            })}
+            {Object.keys(OUTLINE_DATA_SETS).map(key => (
+               <option key={key} value={key}>{key}</option>
+            ))}
           </select>
         </div>
-        <div className="border-t border-gray-200 mt-2 pt-2 flex items-center gap-2">
-          <div className="text-xs font-bold text-gray-500 w-12">Ref Dims:</div>
-          <div className="flex-1 flex items-center gap-1">
-            <span className="text-xs font-bold text-gray-400">L</span>
-            <input
-              type="number"
-              value={params.L_outline}
-              onChange={(e) => handleChange('L_outline', parseFloat(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 w-full text-right outline-none"
-            />
-          </div>
-          <div className="flex-1 flex items-center gap-1">
-            <span className="text-xs font-bold text-gray-400">B</span>
-            <input
-              type="number"
-              value={params.B_outline}
-              onChange={(e) => handleChange('B_outline', parseFloat(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 w-full text-right outline-none"
-            />
-          </div>
+        <div className="flex gap-2 text-xs text-gray-500">
+            <span>Ref L: {params.L_outline}</span>
+            <span>Ref B: {params.B_outline}</span>
         </div>
-      </div>
+      </section>
 
       {/* Curve Direction */}
-      <div className="bg-white border-l-4 border-l-blue-500 border border-gray-300 p-2 mb-4 rounded">
-        <div className="font-bold text-blue-800 mb-2 border-b border-gray-200 pb-1">Curve Direction</div>
-        <div className="flex items-center gap-2 mb-2">
-          <input
-            type="radio"
-            name="curve_dir"
-            id="curve_cw"
-            checked={params.direction === 'cw'}
-            onChange={() => handleChange('direction', 'cw')}
-            className="accent-blue-600 scale-125"
-          />
-          <label htmlFor="curve_cw" className="flex-1 cursor-pointer font-bold">Clockwise</label>
-          <span className="bg-blue-100 text-blue-800 px-2 rounded text-xs">Right Turn</span>
+      <section className="bg-white border-l-4 border-blue-500 border-gray-300 border p-3 mb-4 rounded shadow-sm">
+        <h3 className="font-bold text-blue-800 mb-2 border-b pb-1">Curve Direction</h3>
+        <div className="flex flex-col gap-2">
+            {[
+                { val: 'cw', label: 'Clockwise (Right)' },
+                { val: 'ccw', label: 'Counter-Clockwise (Left)' }
+            ].map(({ val, label }) => (
+                <label key={val} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                        type="radio"
+                        name="direction"
+                        checked={params.direction === val}
+                        onChange={() => handleStr('direction', val)}
+                        className="accent-blue-600"
+                    />
+                    <span className="font-medium text-gray-700">{label}</span>
+                </label>
+            ))}
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="radio"
-            name="curve_dir"
-            id="curve_ccw"
-            checked={params.direction === 'ccw'}
-            onChange={() => handleChange('direction', 'ccw')}
-            className="accent-blue-600 scale-125"
-          />
-          <label htmlFor="curve_ccw" className="flex-1 cursor-pointer font-bold">Counter-Clockwise</label>
-          <span className="bg-blue-100 text-blue-800 px-2 rounded text-xs">Left Turn</span>
-        </div>
-      </div>
-
-      {/* Track Tolerances */}
-      <div className="bg-white border-l-4 border-l-green-600 border border-gray-300 p-2 mb-4 rounded">
-        <div className="font-bold text-green-800 mb-2 border-b border-gray-200 pb-1 flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={params.enableTolerances}
-            onChange={(e) => handleChange('enableTolerances', e.target.checked)}
-            className="w-4 h-4 cursor-pointer"
-          />
-          <span className="cursor-pointer select-none">Track Tolerances</span>
-        </div>
-
-        <div className={`transition-opacity duration-200 ${params.enableTolerances ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-          <div className="mb-2">
-            <label className="block text-xs font-bold text-gray-600 mb-1">Track Scenario</label>
-            <select
-              value={params.trackScenario}
-              onChange={(e) => handleChange('trackScenario', e.target.value)}
-              className="w-full text-xs p-1 border rounded outline-none"
-            >
-              <option value="ballasted_open">Ballasted open track</option>
-              <option value="ballasted_prescribed">Ballasted track (prescribed)</option>
-              <option value="fixed_track">Fixed track</option>
-              <option value="fouling_point">Fouling Point</option>
-            </select>
-          </div>
-          <div className="mb-2">
-            <label className="block text-xs font-bold text-gray-600 mb-1">Radius Scenario</label>
-            <select
-              value={params.radiusScenario}
-              onChange={(e) => handleChange('radiusScenario', e.target.value)}
-              className="w-full text-xs p-1 border rounded outline-none"
-            >
-              <option value="gt_1000">Lateral Tol [mm] – Radius &gt;1000m</option>
-              <option value="lte_1000">Lateral Tol [mm] – Radius &le; 1000m</option>
-            </select>
-          </div>
-
-          <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-2 gap-2">
-             {[
-               { l: 'Lat Tol (mm)', k: 'tol_lat' },
-               { l: 'Vert Tol (mm)', k: 'tol_vert' },
-               { l: 'Cant Tol (mm)', k: 'tol_cant' },
-               { l: 'GW Tol (mm)', k: 'tol_gw' },
-             ].map((f) => (
-                <div key={f.k}>
-                  <label className="block text-[10px] font-bold text-gray-500">{f.l}</label>
-                  <input
-                    type="number"
-                    value={params[f.k as keyof SimulationParams] as number}
-                    onChange={(e) => handleChange(f.k as keyof SimulationParams, parseFloat(e.target.value))}
-                    className="border border-gray-300 rounded px-1 w-full h-6 text-xs text-right outline-none"
-                  />
-                </div>
-             ))}
-          </div>
-          <div className="text-[10px] text-gray-500 italic mt-1 leading-tight">
-              *Values populated from Table 13.
-          </div>
-        </div>
-      </div>
+      </section>
 
       {/* Dynamics */}
-      <div className="bg-white border border-gray-300 p-2 mb-4 rounded">
-          <div className="font-bold text-gray-800 mb-2 border-b border-gray-200 pb-1">Dynamics</div>
-          <div className="flex justify-between mb-2 px-2 text-xs font-bold text-gray-500">
-              <span className="w-20 text-center">Roll (deg)</span>
-              <span className="w-20 text-center">Lat (mm)</span>
-              <span className="w-20 text-center">Bounce (mm)</span>
+      <section className="bg-white border border-gray-300 p-3 mb-4 rounded shadow-sm">
+          <h3 className="font-bold text-gray-800 mb-2 border-b pb-1">Dynamics</h3>
+          <div className="grid grid-cols-3 gap-2 mb-2">
+              {[
+                  { l: 'Roll (°)', k: 'roll' },
+                  { l: 'Lat (mm)', k: 'latPlay' },
+                  { l: 'Bounce', k: 'bounce' }
+              ].map(f => (
+                  <div key={f.k}>
+                      <label className="block text-xs font-bold text-center text-gray-500">{f.l}</label>
+                      <input 
+                        type="number" 
+                        value={params[f.k as keyof SimulationParams] as number}
+                        onChange={(e) => handleNum(f.k as keyof SimulationParams, e.target.value)}
+                        className="w-full border rounded px-1 text-right"
+                      />
+                  </div>
+              ))}
           </div>
-          <div className="grid grid-cols-3 gap-2 pt-1 mb-3">
-              <input 
-                type="number" 
-                value={params.roll} 
-                onChange={(e) => handleChange('roll', parseFloat(e.target.value))}
-                step="0.1"
-                className="border border-gray-300 rounded px-2 py-1 w-full text-right outline-none"
-              />
-              <input 
-                type="number" 
-                value={params.latPlay} 
-                onChange={(e) => handleChange('latPlay', parseFloat(e.target.value))}
-                className="border border-gray-300 rounded px-2 py-1 w-full text-right outline-none"
-              />
-              <input 
-                type="number" 
-                value={params.bounce} 
-                onChange={(e) => handleChange('bounce', parseFloat(e.target.value))}
-                className="border border-gray-300 rounded px-2 py-1 w-full text-right outline-none"
-              />
-          </div>
-          <div className="flex items-center gap-2 px-1 pt-2 border-t border-gray-200">
-              <label className="text-xs font-bold text-gray-700 w-auto">Bounce Start Y:</label>
+          <div className="flex items-center gap-2 mt-2">
+              <label className="text-xs font-bold text-gray-500">Bounce Y-Threshold:</label>
               <input 
                 type="number" 
                 value={params.bounceYThreshold} 
-                onChange={(e) => handleChange('bounceYThreshold', parseFloat(e.target.value))}
-                className="border border-gray-300 rounded px-2 py-1 flex-1 text-right outline-none"
-                title="Apply bounce only to points above this Y height"
+                onChange={(e) => handleNum('bounceYThreshold', e.target.value)}
+                className="flex-1 border rounded px-1 text-right"
               />
           </div>
-      </div>
+      </section>
 
-      {/* Display Options */}
-      <div className="bg-white border border-gray-300 p-2 mb-4 rounded">
-          <div className="font-bold text-gray-800 mb-2 border-b border-gray-200 pb-1">Display Options</div>
-          {/* Checkbox for Y-Rotation */}
-          <div className="flex items-center gap-2 px-1 pt-1">
+      {/* Tolerances */}
+      <section className="bg-white border-l-4 border-green-600 border-gray-300 border p-3 mb-4 rounded shadow-sm">
+        <label className="flex items-center gap-2 font-bold text-green-800 mb-2 border-b pb-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={params.enableTolerances}
+            onChange={(e) => handleBool('enableTolerances', e.target.checked)}
+            className="w-4 h-4 accent-green-600"
+          />
+          Track Tolerances
+        </label>
+
+        {params.enableTolerances && (
+            <div className="space-y-2">
+                <select
+                    value={params.trackScenario}
+                    onChange={(e) => handleStr('trackScenario', e.target.value)}
+                    className="w-full text-xs p-1 border rounded"
+                >
+                    <option value="ballasted_open">Ballasted Open Track</option>
+                    <option value="ballasted_prescribed">Ballasted Prescribed</option>
+                    <option value="fixed_track">Fixed Track</option>
+                    <option value="fouling_point">Fouling Point</option>
+                </select>
+                
+                <select
+                    value={params.radiusScenario}
+                    onChange={(e) => handleStr('radiusScenario', e.target.value)}
+                    className="w-full text-xs p-1 border rounded"
+                >
+                    <option value="gt_1000">Radius &gt; 1000m</option>
+                    <option value="lte_1000">Radius &le; 1000m</option>
+                </select>
+
+                <div className="grid grid-cols-2 gap-2 mt-2 border-t pt-2">
+                    {[
+                        { l: 'Lat Tol', k: 'tol_lat' },
+                        { l: 'Vert Tol', k: 'tol_vert' },
+                        { l: 'Cant Tol', k: 'tol_cant' },
+                        { l: 'GW Tol', k: 'tol_gw' }
+                    ].map(f => (
+                        <div key={f.k}>
+                            <label className="text-[10px] font-bold text-gray-500 block">{f.l}</label>
+                            <input
+                                type="number"
+                                value={params[f.k as keyof SimulationParams] as number}
+                                onChange={(e) => handleNum(f.k as keyof SimulationParams, e.target.value)}
+                                className="w-full border rounded px-1 text-right text-xs"
+                            />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
+      </section>
+
+      {/* Options */}
+      <section className="bg-white border border-gray-300 p-3 rounded shadow-sm space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
               <input
                   type="checkbox"
-                  id="chkYRotation"
                   checked={params.considerYRotation}
-                  onChange={(e) => handleChange('considerYRotation', e.target.checked)}
-                  className="w-4 h-4 cursor-pointer"
+                  onChange={(e) => handleBool('considerYRotation', e.target.checked)}
               />
-              <label htmlFor="chkYRotation" className="text-xs font-bold text-gray-700 cursor-pointer select-none">Consider Y-Rotation</label>
-          </div>
-          {/* Checkbox for Study Vehicle Outline */}
-          <div className="flex items-center gap-2 px-1 pt-2">
+              <span className="text-xs font-bold text-gray-700">Apply Y-Rotation</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
               <input
                   type="checkbox"
-                  id="chkShowStudyVeh"
                   checked={params.showStudyVehicle}
-                  onChange={(e) => handleChange('showStudyVehicle', e.target.checked)}
-                  className="w-4 h-4 cursor-pointer"
+                  onChange={(e) => handleBool('showStudyVehicle', e.target.checked)}
               />
-              <label htmlFor="chkShowStudyVeh" className="text-xs font-bold text-gray-700 cursor-pointer select-none">Show Study Vehicle</label>
-          </div>
-      </div>
-      
-      <div className="mt-4 text-xs text-gray-400 text-center">
-         Results update automatically.
-      </div>
+              <span className="text-xs font-bold text-gray-700">Show Study Vehicle</span>
+          </label>
+      </section>
     </div>
   );
 };
