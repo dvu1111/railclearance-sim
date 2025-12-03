@@ -123,18 +123,28 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const appliedCantDeg = degrees(appliedCantRad);
     const cantBiasAngle = isCW ? -appliedCantDeg : appliedCantDeg;
 
-    // Kinematic Throws
-    let calc_ET = 0, calc_CT = 0;
-    
-    if (R_mm !== 0) {
-        // UPDATED: Use Vehicle Dims (L_veh, B_veh) instead of Reference Outline Dims
-        calc_ET = (Math.pow(params.L_veh, 2) - Math.pow(params.B_veh, 2)) / (8 * R_mm);
-        calc_CT = Math.pow(params.B_veh, 2) / (8 * R_mm);
-    }
+    // --- KINEMATIC THROW CALCULATIONS ---
 
-    // Apply Throws based on direction
-    const throwShiftRight = isCW ? calc_CT : calc_ET; // Outward shift
-    const throwShiftLeft = isCW ? -calc_ET : -calc_CT; // Inward shift (negative X)
+    // A. Reference Outline Throws (Used for the Dynamic Envelope Polygon)
+    let ref_ET = 0, ref_CT = 0;
+    if (R_mm !== 0) {
+        ref_ET = (Math.pow(params.L_outline, 2) - Math.pow(params.B_outline, 2)) / (8 * R_mm);
+        ref_CT = Math.pow(params.B_outline, 2) / (8 * R_mm);
+    }
+    // Apply Throws based on direction for Reference
+    const refThrowShiftRight = isCW ? ref_CT : ref_ET; 
+    const refThrowShiftLeft = isCW ? -ref_ET : -ref_CT;
+
+    // B. Study Vehicle Throws (Used for the specific Study Points)
+    let study_ET = 0, study_CT = 0;
+    if (R_mm !== 0) {
+        study_ET = (Math.pow(params.L_veh, 2) - Math.pow(params.B_veh, 2)) / (8 * R_mm);
+        study_CT = Math.pow(params.B_veh, 2) / (8 * R_mm);
+    }
+    // Apply Throws based on direction for Study Vehicle
+    const studyThrowShiftRight = isCW ? study_CT : study_ET;
+    const studyThrowShiftLeft = isCW ? -study_ET : -study_CT;
+
 
     // Roll Logic
     let rollLeftAngle = Math.abs(params.roll);
@@ -145,6 +155,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     rollRightAngle += cantBiasAngle - cantTolAngleDeg;
 
     // --- CLIPPER: Generate Superimposed Envelope ---
+    // NOTE: We use REFERENCE throws here to generate the standard envelope
     
     // Function to transform the full shape into a specific state
     const createTransformedPath = (rollAngle: number, lateralBias: number): Path64 => {
@@ -159,7 +170,8 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             const rot = getRotatedCoords(p.x, y_bounced, rollAngle, PIVOT_POINT.x, PIVOT_POINT.y);
 
             // 3. Lateral Shift (Geometric Throw + Play + Tolerances) - Add LINEARLY
-            const geomThrow = (p.x >= 0) ? throwShiftRight : throwShiftLeft;
+            // Use REFERENCE throws for the envelope
+            const geomThrow = (p.x >= 0) ? refThrowShiftRight : refThrowShiftLeft;
             const totalLat = lateralBias + geomThrow;
             
             // 4. Apply shift to rotated X
@@ -295,8 +307,9 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             throwType = isRight ? 'ET' : 'CT';
         }
 
-        // Geometric Throw Shift (matches envelope logic)
-        const geomThrowShift = isRight ? throwShiftRight : throwShiftLeft;
+        // Geometric Throw Shift
+        // NOTE: Use STUDY throws here to check the specific vehicle
+        const geomThrowShift = isRight ? studyThrowShiftRight : studyThrowShiftLeft;
 
         // Calculate Position for BOTH dynamic states to find the critical one
         
