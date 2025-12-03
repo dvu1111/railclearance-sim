@@ -48,15 +48,17 @@ The simulation pipeline transforms a static vehicle profile into a dynamic envel
 
 1.  **Geometric Throw Calculation**:
     Approximated using the versine formula based on the vehicle's rigid wheelbase ($B$) and overall length ($L$):
-    $$ End Throw \approx \frac{L^2 - B^2}{8R} ** and **  Centre Throw \approx \frac{B^2}{8R} $$
+    $$
+    \text{End Throw} \approx \frac{L^2 - B^2}{8R} \quad \textbf{and} \quad \text{Centre Throw} \approx \frac{B^2}{8R}
+    $$
 
-2.  **Coordinate Transformation**:
+3.  **Coordinate Transformation**:
     Points are translated and rotated based on the aggregate of track tolerances and vehicle dynamics:
     * **Lateral Translation ($T_y$):** $Throw + LatPlay + \sum Tolerances_{lat}$
     * **Vertical Translation ($T_z$):** $Bounce + \sum Tolerances_{vert}$
     * **Rotation ($\theta$):** Rotated around the Roll Center ($h_{roll}$) accounting for applied cant and roll tolerances.
 
-3.  **Envelope Construction**:
+4.  **Envelope Construction**:
     The system generates two polygon states (leaning left and leaning right). The final kinematic envelope is the **Union** of these two states computed via the Clipper2 boolean operation library.
 
 ---
