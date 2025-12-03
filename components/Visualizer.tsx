@@ -243,11 +243,20 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             hovertemplate: '<b>Pivot Center</b><br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>'
         });
 
+        // --- Calculate Labels for Annotation ---
+        const vertTol = params.enableTolerances ? params.tol_vert : 0;
+        const rollLabel = `Roll: ${data.calculatedParams.rollUsed.toFixed(2)}° ±${data.calculatedParams.cantTolUsed.toFixed(2)}°`;
+        const latLabel = `Lat: ±${params.latPlay}mm ±${data.calculatedParams.tolLatShift}mm`;
+        const bounceLabel = `Bounce: ${params.bounce}mm +${vertTol}mm`;
+        const statsLabel = `${rollLabel} | ${latLabel} | ${bounceLabel}`;
+
+        const directionText = params.direction === 'cw' ? "Clockwise (Right Turn)" : "Counter-Clockwise (Left Turn)";
+
         // --- Layout ---
         const layout: Partial<Layout> = {
             autosize: true,
             title: {
-                text: `<b>Vehicle Outline Simulation</b><br><span style="font-size: 12px;">${params.direction === 'cw' ? "Clockwise (Right Turn)" : "Counter-Clockwise (Left Turn)"}</span>`,
+                text: `<b>Vehicle Outline Simulation</b><br><span style="font-size: 12px;">${directionText}</span><br><span style="font-size: 11px; color: #555;">${statsLabel}</span>`,
                 font: { family: 'Arial', size: 18 }
             },
             font: { family: 'Arial, sans-serif' },
@@ -270,7 +279,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 zerolinecolor: '#9ca3af'
             },
             hovermode: 'closest',
-            margin: { l: 60, r: 60, b: 80, t: 80 },
+            margin: { l: 60, r: 60, b: 80, t: 100 }, // Increased top margin for 3-line title
             // Add annotations for summary stats
             annotations: [
                 {
@@ -280,14 +289,6 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                     text: `Status: <b>${statusText}</b>`,
                     showarrow: false,
                     font: { color: data.globalStatus === 'FAIL' ? 'red' : 'green', size: 14 }
-                },
-                {
-                    xref: 'paper', yref: 'paper',
-                    x: 1, y: 1.08,
-                    xanchor: 'right',
-                    text: `Tol Lat: ±${data.calculatedParams.tolLatShift}mm | Roll: ${data.calculatedParams.rollUsed.toFixed(2)}°`,
-                    showarrow: false,
-                    font: { size: 12, color: '#555' }
                 }
             ]
         };
