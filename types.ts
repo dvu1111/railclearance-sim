@@ -56,9 +56,10 @@ export interface SimulationParams {
   
   // Calculation Settings
   considerYRotation: boolean;
+  useTrigCalculation: boolean; // New: Toggle between Approx vs Exact
   
   // Visualization
-  showStudyVehicle: boolean; // New flag to toggle study vehicle overlay
+  showStudyVehicle: boolean; 
 }
 
 export interface StudyPointResult {
@@ -68,7 +69,7 @@ export interface StudyPointResult {
   rotStaticX: number | null;
   origStaticX: number | null;
   envX: number | null;
-  staticStudyX: number | null; // New: X position of the static study vehicle edge
+  staticStudyX: number | null; 
   status: 'PASS' | 'FAIL' | 'BOUNDARY';
 }
 
@@ -93,7 +94,7 @@ export interface SimulationResult {
     left: PolyCoords;
     right: PolyCoords;
   };
-  studyVehicle: StudyVehicleCoords; // New: Coordinates for the study vehicle box
+  studyVehicle: StudyVehicleCoords; 
   studyPoints: StudyPointResult[];
   globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY';
   calculatedParams: {

@@ -222,6 +222,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate }) => {
               />
               <span className="text-xs font-bold text-gray-700">Show Study Vehicle</span>
           </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                  type="checkbox"
+                  checked={params.useTrigCalculation}
+                  onChange={(e) => handleBool('useTrigCalculation', e.target.checked)}
+              />
+              <span className="text-xs font-bold text-gray-700">Precise Calculation (Trig)</span>
+          </label>
       </section>
     </div>
   );

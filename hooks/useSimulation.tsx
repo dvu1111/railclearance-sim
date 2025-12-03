@@ -26,6 +26,7 @@ const DEFAULT_PARAMS: SimulationParams = {
     bounce: 0,
     bounceYThreshold: 535,
     considerYRotation: false,
+    useTrigCalculation: false, // Default to approximation (standard practice)
     showStudyVehicle: false
 };
 

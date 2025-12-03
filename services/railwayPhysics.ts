@@ -32,12 +32,47 @@ function getRotatedCoords(x: number, y: number, angleDeg: number, cx: number, cy
 
 // --- Pipeline Steps ---
 
-const calculateThrows = (L: number, B: number, R_mm: number, isCW: boolean) => {
-    if (R_mm === 0) return { right: 0, left: 0 };
+const calculateThrows = (L: number, B: number, R_mm: number, isCW: boolean, useTrig: boolean) => {
+    if (R_mm === 0) return { right: 0, left: 0, ET: 0, CT: 0 };
     
-    // Geometric formulas
-    const ET = (Math.pow(L, 2) - Math.pow(B, 2)) / (8 * R_mm);
-    const CT = Math.pow(B, 2) / (8 * R_mm);
+    let ET: number, CT: number;
+
+    if (useTrig) {
+        // Precise calculation using exact geometry (from user images)
+        // Center Throw (CT): R - sqrt(R^2 - B^2/4)
+        // End Throw (ET): sqrt(R^2 - B^2/4) - sqrt(R^2 - L^2/4)
+        
+        const halfB = B / 2;
+        const halfL = L / 2;
+        const R2 = Math.pow(R_mm, 2);
+        const halfB2 = Math.pow(halfB, 2);
+        const halfL2 = Math.pow(halfL, 2);
+        
+        // Guard against mathematical impossible scenarios (B > 2R)
+        if (R2 < halfB2) {
+            console.warn("Radius too small for bogie centers, defaulting to approximation");
+            ET = (Math.pow(L, 2) - Math.pow(B, 2)) / (8 * R_mm);
+            CT = Math.pow(B, 2) / (8 * R_mm);
+        } else {
+            const rootB = Math.sqrt(R2 - halfB2);
+            
+            // CT = R - sqrt(R^2 - B^2/4)
+            CT = R_mm - rootB;
+            
+            // ET = sqrt(R^2 - B^2/4) - sqrt(R^2 - L^2/4)
+            if (R2 < halfL2) {
+                // Should not happen in standard rail contexts (Radius < Half Vehicle Length)
+                ET = (Math.pow(L, 2) - Math.pow(B, 2)) / (8 * R_mm);
+            } else {
+                const rootL = Math.sqrt(R2 - halfL2);
+                ET = rootB - rootL;
+            }
+        }
+    } else {
+        // Geometric formulas (Approximation / Versine)
+        ET = (Math.pow(L, 2) - Math.pow(B, 2)) / (8 * R_mm);
+        CT = Math.pow(B, 2) / (8 * R_mm);
+    }
 
     // Apply direction logic
     // CW (Right Turn): Right=Inner(CT), Left=Outer(ET)
@@ -99,6 +134,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const R_mm = params.radius * 1000;
     const isCW = params.direction === 'cw';
     const outlineData = OUTLINE_DATA_SETS[params.outlineId];
+    const useTrig = params.useTrigCalculation ?? false;
     
     if (!outlineData) throw new Error("Invalid Outline ID");
 
@@ -111,8 +147,8 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
     // 2. Calculate Physics Parameters
     const tols = calculateTolerances(params);
-    const refThrows = calculateThrows(params.L_outline, params.B_outline, R_mm, isCW);
-    const studyThrows = calculateThrows(params.L_veh, params.B_veh, R_mm, isCW);
+    const refThrows = calculateThrows(params.L_outline, params.B_outline, R_mm, isCW, useTrig);
+    const studyThrows = calculateThrows(params.L_veh, params.B_veh, R_mm, isCW, useTrig);
 
     const appliedCantRad = params.appliedCant / 1137;
     const appliedCantDeg = degrees(appliedCantRad);
