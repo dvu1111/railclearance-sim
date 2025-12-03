@@ -27,7 +27,8 @@ const App: React.FC = () => {
         latPlay: 0, //def 43
         bounce: 0, //def 50
         bounceYThreshold: 535,
-        considerYRotation: false // Default to false (legacy behavior)
+        considerYRotation: false, // Default to false (legacy behavior)
+        showStudyVehicle: false // Default to hidden
     });
 
     const simulationResult = useMemo(() => {
