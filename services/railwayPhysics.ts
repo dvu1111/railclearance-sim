@@ -504,15 +504,58 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         envelopePoly, rotStaticX, rotStaticY, isCW,
         structureGauge
     );
-    // Helper for zipping for deltagraph
-    const dynamicStudyPoly: Point[] = dynamicStudyX.map((x, i) => ({ 
-        x, 
-        y: dynamicStudyY[i] 
-    }));
 
-    // 9. Delta Curve (Clearance Graph)
+
+    //  9. Delta Curve (Clearance Graph)
     const ys = rawPointsRight.map(p => p.y);
     const maxY = Math.max(...ys) + tols.bounce + 100;
+
+    let wholebox: Point[] = [
+        { x: -halfW, y: 0 }, { x: halfW, y: 0 },
+        { x: halfW, y: maxY }, { x: -halfW, y: maxY },
+        { x: -halfW, y: 0 }
+    ];
+
+   let wholebox64 = wholebox.map(toPoint64);
+    wholebox64 = normalizePolygon(wholebox64);
+    const cleanedwholebox = wholebox64.map(fromPoint64);
+
+    const bouncedwholebox = cleanedwholebox.map(p => {
+        let y = p.y;
+        if (p.y > params.bounceYThreshold) y += tols.bounce;
+        return { x: p.x, y };
+    });
+
+    const wholeMinLat = latBiasLeft + studyThrows.left;
+    const wholeboxMaxLat = latBiasRight + studyThrows.right;
+
+    const wholeRotPaths = generateRotationalSweep(bouncedwholebox, rollStart, rollEnd, pivot, !checkRotation);
+    let wholeSolution = applyLateralSweep(wholeRotPaths, studyMinLat, studyMaxLat, checkRotation);
+
+
+    //generating a figure for whole dynamic graph. BRUTE FORCE
+    
+    const wholeStudyX: number[] = [];
+    const wholeStudyY: number[] = [];
+    if (wholeSolution.length > 0) {
+        const wholeStudy = wholeSolution.reduce((p, c) => c.length > p.length ? c : p, []);
+        
+        wholeStudy.forEach(pt => {
+            const p = fromPoint64(pt);
+            wholeStudyX.push(p.x);
+            wholeStudyY.push(p.y);
+        });
+        if (dynamicStudyX.length > 0) {
+            wholeStudyX.push(wholeStudyX[0]);
+            wholeStudyY.push(wholeStudyY[0]);
+        }
+    }
+
+    // Helper for zipping for deltagraph
+    const wholeStudyPoly: Point[] = wholeStudyX.map((x, i) => ({ 
+        x, 
+        y: wholeStudyY[i] 
+    }));
 
     // We no longer need to pass 'subtractLeft/Right' (Throws) because
     // the dynamicStudyPoly already has them applied physically.
@@ -521,7 +564,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         maxY, 
         params.h,
         envelopePoly, 
-        dynamicStudyPoly // <--- Pass the Dynamic Study Vehicle
+        wholeStudyPoly // <--- Pass the Dynamic Study Vehicle
     );
 
     // 10. Status
@@ -581,6 +624,9 @@ function calculateDeltaCurvesIterative(
         let studyL = getXAtY(y, dynamicStudyPoly, 'left');
         let studyR = getXAtY(y, dynamicStudyPoly, 'right');
 
+        //Calculate value 
+        
+
         // If study vehicle doesn't exist at this height (e.g. below bounce), width is 0
         if (studyL === null) studyL = 0;
         if (studyR === null) studyR = 0; // Note: Ensure logic handles nulls safely
@@ -593,7 +639,7 @@ function calculateDeltaCurvesIterative(
             // Positive value = CLEARANCE (Safe)
             // Negative value = FOULING (Collision)
         
-            const distLeft = (y < curY) ? Math.abs(envL) - Math.abs(studyL) : Math.abs(envL) - Math.abs(studyL);
+            const distLeft = Math.abs(envL) - Math.abs(studyL);
             const distRight = Math.abs(envR) - Math.abs(studyR);
 
             result.deltaLeft.push(distLeft);
