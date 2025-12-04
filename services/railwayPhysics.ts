@@ -1,6 +1,6 @@
 import { OUTLINE_DATA_SETS } from "../constants";
-import { Point, SimulationParams, SimulationResult, StudyPointResult, PolyCoords, DeltaCurveData } from "../types";
-import { Clipper, Path64, Point64, FillRule } from "../lib/clipper2-ts/index";
+import { Point, SimulationParams, SimulationResult, StudyPointResult, DeltaCurveData } from "../types";
+import { Clipper, Path64, Point64, FillRule, Paths64 } from "../lib/clipper2-ts/index";
 
 // --- Constants & Helpers ---
 const CLIPPER_SCALE = 1000;
@@ -30,6 +30,27 @@ function getRotatedCoords(x: number, y: number, angleDeg: number, cx: number, cy
     };
 }
 
+/**
+ * Prepares a clean, simple, positively oriented polygon from input points.
+ * Essential for robust Clipper operations.
+ */
+function normalizePolygon(path: Path64): Path64 {
+    // 1. Remove strict duplicates (zero-length edges)
+    let p = Clipper.stripDuplicates(path, true);
+    
+    // 2. Filter out degenerate polygons (lines/points)
+    // A polygon must have at least 3 vertices to have area.
+    if (p.length < 3) return [];
+
+    // 3. Ensure Positive Orientation (CCW)
+    // This is critical for the Union operation to treat this as a solid shape
+    // rather than a hole.
+    if (!Clipper.isPositive(p)) {
+        p = Clipper.reversePath(p);
+    }
+    return p;
+}
+
 // --- Pipeline Steps ---
 
 const calculateThrows = (L: number, B: number, R_mm: number, isCW: boolean, useTrig: boolean) => {
@@ -38,30 +59,22 @@ const calculateThrows = (L: number, B: number, R_mm: number, isCW: boolean, useT
     let ET: number, CT: number;
 
     if (useTrig) {
-        // Precise calculation using exact geometry (from user images)
-        // Center Throw (CT): R - sqrt(R^2 - B^2/4)
-        // End Throw (ET): sqrt(R^2 - B^2/4) - sqrt(R^2 - L^2/4)
-        
+        // Precise calculation using exact geometry
         const halfB = B / 2;
         const halfL = L / 2;
         const R2 = Math.pow(R_mm, 2);
         const halfB2 = Math.pow(halfB, 2);
         const halfL2 = Math.pow(halfL, 2);
         
-        // Guard against mathematical impossible scenarios (B > 2R)
         if (R2 < halfB2) {
             console.warn("Radius too small for bogie centers, defaulting to approximation");
             ET = (Math.pow(L, 2) - Math.pow(B, 2)) / (8 * R_mm);
             CT = Math.pow(B, 2) / (8 * R_mm);
         } else {
             const rootB = Math.sqrt(R2 - halfB2);
-            
-            // CT = R - sqrt(R^2 - B^2/4)
             CT = R_mm - rootB;
             
-            // ET = sqrt(R^2 - B^2/4) - sqrt(R^2 - L^2/4)
             if (R2 < halfL2) {
-                // Should not happen in standard rail contexts (Radius < Half Vehicle Length)
                 ET = (Math.pow(L, 2) - Math.pow(B, 2)) / (8 * R_mm);
             } else {
                 const rootL = Math.sqrt(R2 - halfL2);
@@ -75,8 +88,6 @@ const calculateThrows = (L: number, B: number, R_mm: number, isCW: boolean, useT
     }
 
     // Apply direction logic
-    // CW (Right Turn): Right=Inner(CT), Left=Outer(ET)
-    // CCW (Left Turn): Right=Outer(ET), Left=Inner(CT)
     const shiftRight = isCW ? CT : ET;
     const shiftLeft = isCW ? -ET : -CT;
 
@@ -96,37 +107,199 @@ const calculateTolerances = (params: SimulationParams) => {
     return { latShift, cantTolDeg, bounce };
 };
 
-const transformPath = (
-    shape: Point[], 
-    rollAngle: number, 
-    lateralBias: number, 
-    throwRight: number, 
-    throwLeft: number,
-    bounce: number,
-    pivot: Point,
-    params: SimulationParams
+/**
+ * Generates points along an arc for a single vertex.
+ * Respects considerYRotation flag.
+ */
+const getArcPoints = (
+    pt: Point, 
+    pivot: Point, 
+    startAngle: number, 
+    endAngle: number, 
+    steps: number,
+    considerYRotation: boolean
+): Point64[] => {
+    const points: Point64[] = [];
+    // Handle case where steps is 0 or angles are equal to avoid NaN
+    if (steps <= 0 || Math.abs(endAngle - startAngle) < 0.0001) {
+        const r = getRotatedCoords(pt.x, pt.y, startAngle, pivot.x, pivot.y);
+        return [toPoint64({ x: r.x, y: considerYRotation ? r.y : pt.y })];
+    }
+
+    const stepSize = (endAngle - startAngle) / steps;
+    
+    for (let i = 0; i <= steps; i++) {
+        const angle = startAngle + i * stepSize;
+        const r = getRotatedCoords(pt.x, pt.y, angle, pivot.x, pivot.y);
+        points.push(toPoint64({ x: r.x, y: considerYRotation ? r.y : pt.y }));
+    }
+    return points;
+};
+
+/**
+ * Creates a "Bent Rectangle" (Swept Edge) polygon.
+ * Connects the edge at Start position to the edge at End position via arcs.
+ */
+const createSweptEdge = (
+    p1: Point, 
+    p2: Point, 
+    pivot: Point, 
+    startAngle: number, 
+    endAngle: number,
+    steps: number,
+    considerYRotation: boolean
 ): Path64 => {
-    return shape.map(p => {
-        // 1. Vertical Bounce
-        let y_bounced = p.y;
-        if (p.y > params.bounceYThreshold) {
-            y_bounced += bounce;
+    // 1. Generate Arc for P1 (Start -> End)
+    const arc1 = getArcPoints(p1, pivot, startAngle, endAngle, steps, considerYRotation);
+    
+    // 2. Generate Arc for P2 (End -> Start) - Reversed to close the loop
+    const arc2 = getArcPoints(p2, pivot, endAngle, startAngle, steps, considerYRotation);
+
+    // 3. Combine into a closed polygon: 
+    //    [P1_arc_points] -> [P2_arc_points_reversed]
+    //    This traces P1(start)->P1(end) -> P2(end)->P2(start) -> close
+    return [...arc1, ...arc2];
+};
+
+/**
+ * OPTIMIZED CONTINUOUS SWEEP (CSG Approach)
+ * Unions the start shape, end shape, and all edge-swept polygons.
+ */
+const generateRotationalSweep = (
+    shape: Point[], 
+    rollStart: number, 
+    rollEnd: number, 
+    pivot: Point,
+    considerYRotation: boolean
+): Paths64 => {
+    // 1. Define Caps (Start & End Shapes)
+    const pathStart: Path64 = shape.map(p => {
+        const r = getRotatedCoords(p.x, p.y, rollStart, pivot.x, pivot.y);
+        return toPoint64({ x: r.x, y: considerYRotation ? r.y : p.y });
+    });
+
+    const pathEnd: Path64 = shape.map(p => {
+        const r = getRotatedCoords(p.x, p.y, rollEnd, pivot.x, pivot.y);
+        return toPoint64({ x: r.x, y: considerYRotation ? r.y : p.y });
+    });
+
+    // Handle 0-degree roll (or near-zero) case
+    if (Math.abs(rollStart - rollEnd) < 0.001) {
+        return [normalizePolygon(pathStart)];
+    }
+
+    // --- FIX FOR CRASH WHEN Y-ROTATION IS DISABLED ---
+    // If Y-Rotation is disabled, the sweep generates degenerate (flat) polygons for horizontal edges.
+    // We simply union the start and end positions which covers the swept area monotonically in X.
+    if (!considerYRotation || Math.abs(rollStart) < 0 || Math.abs(rollEnd) < 0) {
+        const cleanStart = normalizePolygon(pathStart);
+        const cleanEnd = normalizePolygon(pathEnd);
+        
+        const startValid = cleanStart.length >= 3;
+        const endValid = cleanEnd.length >= 3;
+
+        if (!startValid && !endValid) return [];
+        if (!startValid) return [cleanEnd];
+        if (!endValid) return [cleanStart];
+
+        const result = Clipper.union([cleanStart, cleanEnd], FillRule.NonZero);
+        
+        // FAILSAFE: If Union fails (returns empty) but inputs are valid, 
+        // return both inputs as separate paths. We will merge them later in calculateEnvelope.
+        if (result.length === 0) {
+            return [cleanStart, cleanEnd]; 
+        }
+        
+        return result;
+    }
+
+    const parts: Paths64 = [];
+    
+    // Add Caps to parts list
+    // Use self-union to ensure caps are topologically clean (removes self-intersections)
+    const cleanStart = Clipper.union([normalizePolygon(pathStart)], FillRule.NonZero);
+    const cleanEnd = Clipper.union([normalizePolygon(pathEnd)], FillRule.NonZero);
+    parts.push(...cleanStart);
+    parts.push(...cleanEnd);
+
+    // Determine step count for arcs
+    const angleDiff = Math.abs(rollEnd - rollStart);
+    const steps = Math.max(5, Math.ceil(angleDiff * 2)); 
+
+    // 2. Add Swept Paths for each edge (Bent Rectangles)
+    const len = shape.length;
+    for (let i = 0; i < len; i++) {
+        const p1 = shape[i];
+        const p2 = shape[(i + 1) % len];
+
+        const edgePoly = createSweptEdge(p1, p2, pivot, rollStart, rollEnd, steps, considerYRotation);
+        
+        // Normalize ensures the swept edge is a valid, positively oriented polygon.
+        const cleaned = normalizePolygon(edgePoly);
+
+        // Filter degenerate polygons
+        if (cleaned.length < 3 || Math.abs(Clipper.area(cleaned)) < 1.0) { 
+            continue; 
         }
 
-        // 2. Rotation
-        const rot = getRotatedCoords(p.x, y_bounced, rollAngle, pivot.x, pivot.y);
+        // Clean the swept edge polygon
+        const cleanEdgeParts = Clipper.union([cleaned], FillRule.NonZero);
+        parts.push(...cleanEdgeParts);
+    }
 
-        // 3. Lateral Shift (Geometric Throw + Play + Bias)
-        const geomThrow = (p.x >= 0) ? throwRight : throwLeft;
-        const totalLat = lateralBias + geomThrow;
-        
-        // 4. Final Coordinates
-        const finalX = rot.x + totalLat;
-        const finalY = params.considerYRotation ? rot.y : y_bounced;
-
-        return toPoint64({ x: finalX, y: finalY });
-    });
+    // 3. Single Boolean Union Operation
+    return Clipper.union(parts, FillRule.NonZero);
 };
+
+/**
+ * Applies lateral sweep using Minkowski Sum or Simple Union.
+ */
+const applyLateralSweep = (
+    rotationalPaths: Paths64, 
+    minLat: number, 
+    maxLat: number,
+    useSimpleSweep: boolean = true
+): Paths64 => {
+    if (Math.abs(maxLat - minLat) < 0.1) {
+        // Just translate
+        return Clipper.translatePaths(rotationalPaths, minLat * CLIPPER_SCALE, 0);
+    }
+
+    if (useSimpleSweep) {
+        // Optimization: When Y-rotation is disabled (or strictly lateral shift), 
+        // we can simply Union the left-most and right-most positions.
+        // Because the vehicle width (e.g. 3000mm) is significantly larger than lateral shifts (e.g. 100mm),
+        // the two instances overlap heavily, forming a solid envelope without holes.
+        // This avoids the expensive/complex Minkowski Sum operation.
+        const pathMin = Clipper.translatePaths(rotationalPaths, minLat * CLIPPER_SCALE, 0);
+        const pathMax = Clipper.translatePaths(rotationalPaths, maxLat * CLIPPER_SCALE, 0);
+        return Clipper.union([...pathMin, ...pathMax], FillRule.NonZero);
+    }
+
+    const width = (maxLat - minLat) * CLIPPER_SCALE;
+ 
+    // Minkowski sum path (a horizontal line segment)
+    const pathPattern: Path64 = [
+        { x: 0, y: 0 },
+        { x: Math.round(width), y: 0 }
+    ];
+
+    const sweptPaths: Paths64 = [];
+
+    for (const path of rotationalPaths) {
+        const cleanPath = normalizePolygon(path);
+        // Only process if valid
+        if (cleanPath.length >= 3) {
+            const result = Clipper.minkowskiSum(cleanPath, pathPattern, true); 
+            sweptPaths.push(...result);
+        }
+    }
+        
+
+    // Translate the result to the start position (minLat)
+    return Clipper.translatePaths(sweptPaths, minLat * CLIPPER_SCALE, 0);
+};
+
 
 // --- Main Calculation ---
 
@@ -143,7 +316,16 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     // 1. Prepare Vehicle Shapes
     const rawPointsRight = outlineData.points;
     const rawPointsLeft = rawPointsRight.map(p => ({ x: -p.x, y: p.y })).reverse();
-    const fullStaticShape = [...rawPointsRight, ...rawPointsLeft];
+    
+    // Convert to 64-bit integer space immediately for processing
+    const rawRight64 = rawPointsRight.map(toPoint64);
+    const rawLeft64 = rawPointsLeft.map(toPoint64);
+    let fullShape64 = [...rawRight64, ...rawLeft64];
+    
+    // FIX: Normalize the base polygon (Simplify + Orient)
+    fullShape64 = normalizePolygon(fullShape64);
+    
+    const fullStaticShape = fullShape64.map(fromPoint64);
 
     // 2. Calculate Physics Parameters
     const tols = calculateTolerances(params);
@@ -155,57 +337,87 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const cantBiasAngle = isCW ? -appliedCantDeg : appliedCantDeg;
 
     // Roll Angles
-    let rollLeftAngle = Math.abs(params.roll) + cantBiasAngle + tols.cantTolDeg;
-    let rollRightAngle = -Math.abs(params.roll) + cantBiasAngle - tols.cantTolDeg;
-
-    const latShiftLeft = -params.latPlay - tols.latShift;
-    const latShiftRight = params.latPlay + tols.latShift;
-
-    // 3. Generate Envelopes (Using Clipper)
-    // Left Lean State
-    const pathLeft = transformPath(
-        fullStaticShape, rollLeftAngle, latShiftLeft, 
-        refThrows.right, refThrows.left, tols.bounce, pivot, params
-    );
-    // Right Lean State
-    const pathRight = transformPath(
-        fullStaticShape, rollRightAngle, latShiftRight, 
-        refThrows.right, refThrows.left, tols.bounce, pivot, params
-    );
-
-    const solution = Clipper.union([pathLeft], [pathRight], FillRule.NonZero);
+    const angle1 = Math.abs(params.roll) + cantBiasAngle + tols.cantTolDeg;
+    const angle2 = -Math.abs(params.roll) + cantBiasAngle - tols.cantTolDeg;
     
+    const rollStart = Math.min(angle1, angle2);
+    const rollEnd = Math.max(angle1, angle2);
+
+    // Lateral Biases
+    const latBiasLeft = -params.latPlay - tols.latShift;
+    const latBiasRight = params.latPlay + tols.latShift;
+
+    // Combined Lateral Limits
+    const totalMinLat = latBiasLeft + refThrows.left;
+    const totalMaxLat = latBiasRight + refThrows.right;
+
+    // 3. Pre-apply Bounce to Shape
+    const bouncedShape = fullStaticShape.map(p => {
+        let y = p.y;
+        if (p.y > params.bounceYThreshold) {
+            y += tols.bounce;
+        }
+        return { x: p.x, y };
+    });
+
+    let checkRotation: boolean = (params.considerYRotation) ? ((Math.abs(rollStart) > 0 || Math.abs(rollEnd) > 0) ? false : true) : true;
+    // 4. Generate Rotational Envelope (CSG Method)
+    const rotPaths = generateRotationalSweep(bouncedShape, rollStart, rollEnd, pivot, !checkRotation);
+
+    // 5. Generate Full Kinematic Envelope
+    // Pass !params.considerYRotation as the trigger for simple sweep
+    let solution = applyLateralSweep(rotPaths, totalMinLat, totalMaxLat, checkRotation);
+    
+    // FAILSAFE MERGE: If solution contains disjoint parts (e.g. from fallback), merge them now.
+    // This ensures we have a single envelope even if the intermediate steps produced fragments.
+    if (solution.length > 1) {
+        solution = Clipper.union(solution, FillRule.NonZero);
+    }
+
     // Extract Envelope Polygon
     const envX: number[] = [];
     const envY: number[] = [];
     if (solution.length > 0) {
+        // Pick the largest path if still multiple, but Union above usually fixes it.
         const outerPath = solution.reduce((p, c) => c.length > p.length ? c : p, []);
         outerPath.forEach(pt => {
             const p = fromPoint64(pt);
             envX.push(p.x);
             envY.push(p.y);
         });
-        envX.push(envX[0]);
-        envY.push(envY[0]);
+        if (envX.length > 0) {
+            envX.push(envX[0]);
+            envY.push(envY[0]);
+        }
     }
 
-    // 4. Study Vehicle Visualization (Optional)
+    // 6. Study Vehicle Visualization
     const halfW = params.w / 2;
     const studyBox: Point[] = [
         { x: -halfW, y: 0 }, { x: halfW, y: 0 },
         { x: halfW, y: params.h }, { x: -halfW, y: params.h },
         { x: -halfW, y: 0 }
     ];
+    
+    let studyBox64 = studyBox.map(toPoint64);
+    studyBox64 = normalizePolygon(studyBox64);
+    const cleanedStudyBox = studyBox64.map(fromPoint64);
+    
+    const bouncedStudyBox = cleanedStudyBox.map(p => {
+        let y = p.y;
+        if (p.y > params.bounceYThreshold) y += tols.bounce;
+        return { x: p.x, y };
+    });
 
-    const studyPathLeft = transformPath(
-        studyBox, rollLeftAngle, latShiftLeft, 
-        studyThrows.right, studyThrows.left, tols.bounce, pivot, params
-    );
-    const studyPathRight = transformPath(
-        studyBox, rollRightAngle, latShiftRight, 
-        studyThrows.right, studyThrows.left, tols.bounce, pivot, params
-    );
-    const studySolution = Clipper.union([studyPathLeft], [studyPathRight], FillRule.NonZero);
+    const studyMinLat = latBiasLeft + studyThrows.left;
+    const studyMaxLat = latBiasRight + studyThrows.right;
+
+    const studyRotPaths = generateRotationalSweep(bouncedStudyBox, rollStart, rollEnd, pivot, !checkRotation);
+    let studySolution = applyLateralSweep(studyRotPaths, studyMinLat, studyMaxLat, checkRotation);
+    
+    if (studySolution.length > 1) {
+        studySolution = Clipper.union(studySolution, FillRule.NonZero);
+    }
 
     const dynamicStudyX: number[] = [];
     const dynamicStudyY: number[] = [];
@@ -216,20 +428,23 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             dynamicStudyX.push(p.x);
             dynamicStudyY.push(p.y);
         });
-        dynamicStudyX.push(dynamicStudyX[0]);
-        dynamicStudyY.push(dynamicStudyY[0]);
+        if (dynamicStudyX.length > 0) {
+            dynamicStudyX.push(dynamicStudyX[0]);
+            dynamicStudyY.push(dynamicStudyY[0]);
+        }
     }
 
-    // 5. Static & Ghost Visualization
-    const rotPathStaticLeft = fullStaticShape.map(p => {
-        const rot = getRotatedCoords(p.x, p.y, rollLeftAngle, pivot.x, pivot.y);
+    // 7. Static & Ghost Visualization
+    const rotPathStaticLeft = bouncedShape.map(p => {
+        const rot = getRotatedCoords(p.x, p.y, rollStart, pivot.x, pivot.y);
         return toPoint64({ x: rot.x, y: params.considerYRotation ? rot.y : p.y });
     });
-    const rotPathStaticRight = fullStaticShape.map(p => {
-        const rot = getRotatedCoords(p.x, p.y, rollRightAngle, pivot.x, pivot.y);
+    const rotPathStaticRight = bouncedShape.map(p => {
+        const rot = getRotatedCoords(p.x, p.y, rollEnd, pivot.x, pivot.y);
         return toPoint64({ x: rot.x, y: params.considerYRotation ? rot.y : p.y });
     });
-    const solutionStatic = Clipper.union([rotPathStaticLeft], [rotPathStaticRight], FillRule.NonZero);
+    // Safely union static ghost shapes
+    let solutionStatic = Clipper.union([normalizePolygon(rotPathStaticLeft)], [normalizePolygon(rotPathStaticRight)], FillRule.NonZero);
     
     const rotStaticX: number[] = [];
     const rotStaticY: number[] = [];
@@ -240,36 +455,33 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             rotStaticX.push(p.x);
             rotStaticY.push(p.y);
         });
-        rotStaticX.push(rotStaticX[0]);
-        rotStaticY.push(rotStaticY[0]);
+        if (rotStaticX.length > 0) {
+            rotStaticX.push(rotStaticX[0]);
+            rotStaticY.push(rotStaticY[0]);
+        }
     }
 
-    // 6. Study Points Analysis
+    // 8. Study Points
     const envelopePoly: Point[] = envX.map((x, i) => ({ x, y: envY[i] }));
     const studyPoints = calculateStudyPoints(
         params, rawPointsRight, rawPointsLeft, 
-        tols.bounce, pivot, rollLeftAngle, rollRightAngle, 
-        latShiftLeft, latShiftRight, studyThrows, 
+        tols.bounce, pivot, rollStart, rollEnd, 
+        latBiasLeft, latBiasRight, studyThrows, 
         envelopePoly, rotStaticX, rotStaticY, isCW
     );
 
-    // 7. Calculate Delta Curve Data (Clearance Deviation)
+    // 9. Delta Curve
     const ys = rawPointsRight.map(p => p.y);
     const maxY = Math.max(...ys);
     
-    // Determine the study vehicle throw offset to subtract
-    // If CW (Right Turn): Left is Outer (Subtract ET), Right is Inner (Subtract CT)
-    // If CCW (Left Turn): Left is Inner (Subtract CT), Right is Outer (Subtract ET)
     const subtractLeft = isCW ? studyThrows.ET : studyThrows.CT;
     const subtractRight = isCW ? studyThrows.CT : studyThrows.ET;
 
-    // Calculate Deltas by iterating every 1mm from 0 to maxY
-    // Subtracting the study vehicle throw from the envelope width
     const deltaGraphData = calculateDeltaCurvesIterative(
         0, maxY, envelopePoly, subtractLeft, subtractRight, halfW
     );
 
-    // 8. Global Status
+    // 10. Status
     let globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
     if (studyPoints.length > 0) {
         if (studyPoints.some(sp => sp.status === 'FAIL')) globalStatus = 'FAIL';
@@ -284,7 +496,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
                 rot_static_x: rotStaticX, rot_static_y: rotStaticY
             },
             right: { 
-                x: [], y: [], // Right side data is implicit in the full envelope for now
+                x: [], y: [], 
                 static_x: rawPointsRight.map(p => p.x), static_y: rawPointsRight.map(p => p.y),
                 rot_static_x: [], rot_static_y: []
             }
@@ -315,15 +527,12 @@ function calculateDeltaCurvesIterative(
 ): DeltaCurveData {
     const result: DeltaCurveData = { y: [], deltaLeft: [], deltaRight: [] };
 
-    // Iterate 1mm steps from 0 to Max Height
     for (let y = minY; y <= maxY; y += 1) {
-        // Get Envelope Boundary at this height
         const envL = getXAtY(y, envelope, 'left');
         const envR = getXAtY(y, envelope, 'right');
 
         if (envL !== null && envR !== null) {
             result.y.push(y);
-            // Output absolute X values (Envelope Widths) minus the Study Vehicle Throw and Half Width
             result.deltaLeft.push(Math.abs(envL) - subtractLeft - halfWidth); 
             result.deltaRight.push(Math.abs(envR) - subtractRight - halfWidth);
         }
@@ -335,7 +544,7 @@ function calculateStudyPoints(
     params: SimulationParams, 
     rawRight: Point[], rawLeft: Point[], 
     bounce: number, pivot: Point,
-    rollLeft: number, rollRight: number,
+    rollMin: number, rollMax: number,
     latLeft: number, latRight: number,
     throws: { right: number, left: number },
     envelope: Point[], rotStaticX: number[], rotStaticY: number[],
@@ -359,26 +568,28 @@ function calculateStudyPoints(
         const throwType = (isCW === isRight) ? 'CT' : 'ET'; 
         const geomThrowShift = isRight ? throws.right : throws.left;
 
-        // Calculate Critical Point (Max Excursion between Left/Right Lean)
-        const p1 = getRotatedCoords(x_base, h_bounced, rollLeft, pivot.x, pivot.y);
-        const x1 = p1.x + latLeft + geomThrowShift;
-        const y1 = params.considerYRotation ? p1.y : h_bounced;
+        // --- Calculate Critical Point (Worst Case Excursion) ---
+        const testPoints: Point[] = [];
+        const rolls = [rollMin, rollMax];
+        const lats = [latLeft, latRight];
 
-        const p2 = getRotatedCoords(x_base, h_bounced, rollRight, pivot.x, pivot.y);
-        const x2 = p2.x + latRight + geomThrowShift;
-        const y2 = params.considerYRotation ? p2.y : h_bounced;
+        rolls.forEach(r => {
+            const rotated = getRotatedCoords(x_base, h_bounced, r, pivot.x, pivot.y);
+            const y = params.considerYRotation ? rotated.y : h_bounced;
+            lats.forEach(lat => {
+                testPoints.push({
+                    x: rotated.x + lat + geomThrowShift,
+                    y: y
+                });
+            });
+        });
 
-        // Critical logic: Right side -> Max X, Left side -> Min X
-        const finalP = (isRight ? (x1 > x2) : (x1 < x2)) ? { x: x1, y: y1 } : { x: x2, y: y2 };
-        // Fix variable names from copy/paste (x_1 -> x1)
+        // Find the extreme point based on side
+        let finalP = testPoints[0];
         if (isRight) {
-             // For Right Side (positive X), critical is Max X
-             // If leaned right > leaned left
-             if (x2 > x1) { finalP.x = x2; finalP.y = y2; } else { finalP.x = x1; finalP.y = y1; }
+            finalP = testPoints.reduce((max, p) => p.x > max.x ? p : max, testPoints[0]);
         } else {
-             // For Left Side (negative X), critical is Min X
-             // If leaned left < leaned right
-             if (x1 < x2) { finalP.x = x1; finalP.y = y1; } else { finalP.x = x2; finalP.y = y2; }
+            finalP = testPoints.reduce((min, p) => p.x < min.x ? p : min, testPoints[0]);
         }
 
         // Intersections
@@ -387,18 +598,14 @@ function calculateStudyPoints(
         const rotStaticXAtY = getXAtY(finalP.y, rotStaticPoly, side);
         const origStaticX = getXAtY(finalP.y, isRight ? rawRight : rawLeft, side);
 
-        // Fail Check Logic (Matches Main Branch)
         const isInside = pointInPolygon(finalP, envelope);
         const dist = minDistanceToEdges(finalP, envelope);
         
         let status: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
 
         if (dist <= TOLERANCE) {
-            // Effectively on the boundary (within tolerance)
-            // This captures points that are technically inside OR outside but very close
             status = 'BOUNDARY';
         } else if (!isInside) {
-            // Strictly outside and not on boundary
             status = 'FAIL';
         }
 
@@ -455,7 +662,6 @@ function minDistanceToEdges(p: Point, poly: Point[]): number {
         const v = poly[i];
         const w = poly[(i + 1) % poly.length];
         
-        // Segment distance squared
         const l2 = Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
         let t = 0;
         if (l2 === 0) {
