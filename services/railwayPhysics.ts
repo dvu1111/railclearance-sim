@@ -191,7 +191,7 @@ const generateRotationalSweep = (
     // --- FIX FOR CRASH WHEN Y-ROTATION IS DISABLED ---
     // If Y-Rotation is disabled, the sweep generates degenerate (flat) polygons for horizontal edges.
     // We simply union the start and end positions which covers the swept area monotonically in X.
-    if (!considerYRotation) {
+    if (!considerYRotation || Math.abs(rollStart) < 0 || Math.abs(rollEnd) < 0) {
         const cleanStart = normalizePolygon(pathStart);
         const cleanEnd = normalizePolygon(pathEnd);
         
@@ -258,7 +258,7 @@ const applyLateralSweep = (
     rotationalPaths: Paths64, 
     minLat: number, 
     maxLat: number,
-    useSimpleSweep: boolean = false
+    useSimpleSweep: boolean = true
 ): Paths64 => {
     if (Math.abs(maxLat - minLat) < 0.1) {
         // Just translate
@@ -277,7 +277,7 @@ const applyLateralSweep = (
     }
 
     const width = (maxLat - minLat) * CLIPPER_SCALE;
-    
+ 
     // Minkowski sum path (a horizontal line segment)
     const pathPattern: Path64 = [
         { x: 0, y: 0 },
@@ -294,6 +294,7 @@ const applyLateralSweep = (
             sweptPaths.push(...result);
         }
     }
+        
 
     // Translate the result to the start position (minLat)
     return Clipper.translatePaths(sweptPaths, minLat * CLIPPER_SCALE, 0);
@@ -359,12 +360,13 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         return { x: p.x, y };
     });
 
+    let checkRotation: boolean = (params.considerYRotation) ? ((Math.abs(rollStart) > 0 || Math.abs(rollEnd) > 0) ? false : true) : true;
     // 4. Generate Rotational Envelope (CSG Method)
-    const rotPaths = generateRotationalSweep(bouncedShape, rollStart, rollEnd, pivot, params.considerYRotation);
+    const rotPaths = generateRotationalSweep(bouncedShape, rollStart, rollEnd, pivot, !checkRotation);
 
     // 5. Generate Full Kinematic Envelope
     // Pass !params.considerYRotation as the trigger for simple sweep
-    let solution = applyLateralSweep(rotPaths, totalMinLat, totalMaxLat, !params.considerYRotation);
+    let solution = applyLateralSweep(rotPaths, totalMinLat, totalMaxLat, checkRotation);
     
     // FAILSAFE MERGE: If solution contains disjoint parts (e.g. from fallback), merge them now.
     // This ensures we have a single envelope even if the intermediate steps produced fragments.
@@ -410,8 +412,8 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const studyMinLat = latBiasLeft + studyThrows.left;
     const studyMaxLat = latBiasRight + studyThrows.right;
 
-    const studyRotPaths = generateRotationalSweep(bouncedStudyBox, rollStart, rollEnd, pivot, params.considerYRotation);
-    let studySolution = applyLateralSweep(studyRotPaths, studyMinLat, studyMaxLat, !params.considerYRotation);
+    const studyRotPaths = generateRotationalSweep(bouncedStudyBox, rollStart, rollEnd, pivot, !checkRotation);
+    let studySolution = applyLateralSweep(studyRotPaths, studyMinLat, studyMaxLat, checkRotation);
     
     if (studySolution.length > 1) {
         studySolution = Clipper.union(studySolution, FillRule.NonZero);
