@@ -510,61 +510,18 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const ys = rawPointsRight.map(p => p.y);
     const maxY = Math.max(...ys) + tols.bounce + 100;
 
-    let wholebox: Point[] = [
-        { x: -halfW, y: 0 }, { x: halfW, y: 0 },
-        { x: halfW, y: maxY }, { x: -halfW, y: maxY },
-        { x: -halfW, y: 0 }
-    ];
-
-   let wholebox64 = wholebox.map(toPoint64);
-    wholebox64 = normalizePolygon(wholebox64);
-    const cleanedwholebox = wholebox64.map(fromPoint64);
-
-    const bouncedwholebox = cleanedwholebox.map(p => {
-        let y = p.y;
-        if (p.y > params.bounceYThreshold) y += tols.bounce;
-        return { x: p.x, y };
-    });
-
-    const wholeMinLat = latBiasLeft + studyThrows.left;
-    const wholeboxMaxLat = latBiasRight + studyThrows.right;
-
-    const wholeRotPaths = generateRotationalSweep(bouncedwholebox, rollStart, rollEnd, pivot, !checkRotation);
-    let wholeSolution = applyLateralSweep(wholeRotPaths, studyMinLat, studyMaxLat, checkRotation);
-
-
-    //generating a figure for whole dynamic graph. BRUTE FORCE
-    
-    const wholeStudyX: number[] = [];
-    const wholeStudyY: number[] = [];
-    if (wholeSolution.length > 0) {
-        const wholeStudy = wholeSolution.reduce((p, c) => c.length > p.length ? c : p, []);
-        
-        wholeStudy.forEach(pt => {
-            const p = fromPoint64(pt);
-            wholeStudyX.push(p.x);
-            wholeStudyY.push(p.y);
-        });
-        if (dynamicStudyX.length > 0) {
-            wholeStudyX.push(wholeStudyX[0]);
-            wholeStudyY.push(wholeStudyY[0]);
-        }
-    }
-
-    // Helper for zipping for deltagraph
-    const wholeStudyPoly: Point[] = wholeStudyX.map((x, i) => ({ 
-        x, 
-        y: wholeStudyY[i] 
-    }));
-
-    // We no longer need to pass 'subtractLeft/Right' (Throws) because
-    // the dynamicStudyPoly already has them applied physically.
+    // Refactored iterative approach for Study Vehicle (removing WholeBox Clipper op)
     const deltaGraphData = calculateDeltaCurvesIterative(
         0, 
         maxY, 
-        params.h,
-        envelopePoly, 
-        wholeStudyPoly // <--- Pass the Dynamic Study Vehicle
+        envelopePoly,
+        params.w, params.h,
+        pivot,
+        rollStart, rollEnd,
+        tols.bounce, params.bounceYThreshold,
+        latBiasLeft, latBiasRight,
+        studyThrows,
+        params.considerYRotation
     );
 
     // 10. Status
@@ -605,10 +562,149 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     };
 }
 
+/**
+ * Analytically calculates the dynamic bounds of the study vehicle at a specific height `y`.
+ * Checks both rotation extremes and the corner arcs.
+ */
+function getDynamicBoundsAtY(
+    y: number,
+    w: number, h: number,
+    pivot: Point,
+    rollStart: number, rollEnd: number,
+    bounce: number, bounceYThreshold: number,
+    considerYRotation: boolean
+): { minX: number | null, maxX: number | null } {
+    
+    // Define the 4 corners of the Study Vehicle in Static Frame (x, y)
+    // Apply bounce to the top corners if applicable
+    const halfW = w / 2;
+    const topY = h > bounceYThreshold ? h + bounce : h;
+    const corners: Point[] = [
+        { x: -halfW, y: 0 },    // BL
+        { x: halfW, y: 0 },     // BR
+        { x: halfW, y: topY },  // TR
+        { x: -halfW, y: topY }  // TL
+    ];
+
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let found = false;
+
+    // Helper to process a rotated polygon at a specific angle
+    const checkPolygonAtAngle = (angle: number) => {
+        const poly = corners.map(p => {
+            const r = getRotatedCoords(p.x, p.y, angle, pivot.x, pivot.y);
+            return { x: r.x, y: considerYRotation ? r.y : p.y };
+        });
+
+        // Intersect polygon edges with line Y = y
+        const xs = getXsAtY(y, poly);
+        if (xs.length > 0) {
+            minX = Math.min(minX, ...xs);
+            maxX = Math.max(maxX, ...xs);
+            found = true;
+        }
+    };
+
+    // 1. Check Limits (Start/End Rotation)
+    checkPolygonAtAngle(rollStart);
+    checkPolygonAtAngle(rollEnd);
+
+    // 2. Check Corner Arcs (The "Round" parts of the sweep)
+    // If a corner rotates through the target height y, its x on the circle is an extremum.
+    // Equation of circle for corner C: (x - px)^2 + (y - py)^2 = R^2
+    // x = px +/- sqrt(R^2 - (y - py)^2)
+    if (considerYRotation && Math.abs(rollStart - rollEnd) > 0.001) {
+        corners.forEach(p => {
+            const dx = p.x - pivot.x;
+            const dy = p.y - pivot.y;
+            const R2 = dx*dx + dy*dy;
+            const dy_prime = y - pivot.y;
+            
+            // Check if line Y=y intersects the circle of rotation
+            if (R2 >= dy_prime * dy_prime) {
+                const x_offset = Math.sqrt(R2 - dy_prime * dy_prime);
+                const x1 = pivot.x - x_offset;
+                const x2 = pivot.x + x_offset;
+
+                // For each intersection, check if it lies within the sweep angle range
+                [x1, x2].forEach(x => {
+                    // Calculate angle of this point relative to pivot
+                    // atan2(y - py, x - px)
+                    const angleRad = Math.atan2(dy_prime, x - pivot.x);
+                    // Adjust to be relative to the original point's angle?
+                    // No, we need the rotation angle required to bring 'p' to (x,y).
+                    // The corner 'p' starts at static angle 'startAngle'.
+                    // Rotated point P' is at 'startAngle + rotation'.
+                    // So rotation = angle(P') - angle(P).
+                    
+                    const originalAngle = Math.atan2(dy, dx);
+                    let rotationDeg = degrees(angleRad - originalAngle);
+                    
+                    // Normalize rotation to be close to the range [rollStart, rollEnd]
+                    // This handles wrap-around if necessary, but roll angles are usually small (-10 to 10).
+                    // Simple clamp check is usually enough for small angles.
+                    
+                    // Ensure rotationDeg is in the same "period" as rollStart/End
+                    const center = (rollStart + rollEnd) / 2;
+                    while (rotationDeg - center > 180) rotationDeg -= 360;
+                    while (rotationDeg - center < -180) rotationDeg += 360;
+
+                    // Check if this rotation is within the sweep
+                    // Allow small epsilon for floating point
+                    const minR = Math.min(rollStart, rollEnd);
+                    const maxR = Math.max(rollStart, rollEnd);
+                    
+                    if (rotationDeg >= minR - 0.01 && rotationDeg <= maxR + 0.01) {
+                        minX = Math.min(minX, x);
+                        maxX = Math.max(maxX, x);
+                        found = true;
+                    }
+                });
+            }
+        });
+    }
+
+    if (!found) return { minX: null, maxX: null };
+    return { minX, maxX };
+}
+
+/**
+ * Gets all X intersections of a horizontal line Y=targetY with a polygon.
+ */
+function getXsAtY(targetY: number, poly: Point[]): number[] {
+    const intersections: number[] = [];
+    for (let i = 0; i < poly.length; i++) {
+        const p1 = poly[i];
+        const p2 = poly[(i + 1) % poly.length];
+        
+        // Check if edge crosses Y
+        if ((p1.y <= targetY && targetY <= p2.y) || (p2.y <= targetY && targetY <= p1.y)) {
+            // Avoid division by zero for horizontal lines
+            if (Math.abs(p1.y - p2.y) > 0.0001) {
+                const t = (targetY - p1.y) / (p2.y - p1.y);
+                const x = p1.x + t * (p2.x - p1.x);
+                intersections.push(x);
+            } else if (Math.abs(p1.y - targetY) < 0.0001) {
+                // Horizontal edge on the line - add both endpoints
+                intersections.push(p1.x, p2.x);
+            }
+        }
+    }
+    return intersections;
+}
+
 function calculateDeltaCurvesIterative(
-    minY: number, maxY: number, curY: number,
+    minY: number, maxY: number, 
     envelope: Point[],
-    dynamicStudyPoly: Point[] 
+    // Study Params
+    vehW: number, vehH: number,
+    pivot: Point,
+    rollStart: number, rollEnd: number,
+    bounce: number, bounceYThreshold: number,
+    latBiasLeft: number, latBiasRight: number,
+    studyThrows: { left: number, right: number },
+    considerYRotation: boolean
 ): DeltaCurveData {
     const result: DeltaCurveData = { y: [], deltaLeft: [], deltaRight: [] };
 
@@ -619,17 +715,24 @@ function calculateDeltaCurvesIterative(
         const envL = getXAtY(y, envelope, 'left');
         const envR = getXAtY(y, envelope, 'right');
 
-        // 2. Get Dynamic Study Vehicle X (The Object being checked)
-        // This polygon already includes throws, roll, bounce, and lat play.
-        let studyL = getXAtY(y, dynamicStudyPoly, 'left');
-        let studyR = getXAtY(y, dynamicStudyPoly, 'right');
+        // 2. Calculate Dynamic Study Vehicle Bounds individually for this Y
+        const { minX, maxX } = getDynamicBoundsAtY(
+            y, vehW, vehH, pivot, 
+            rollStart, rollEnd, 
+            bounce, bounceYThreshold, 
+            considerYRotation
+        );
 
-        //Calculate value 
+        // If the study vehicle does not exist at this height (e.g. above the roof), 
+        // we skip this point to prevent the graph from "shooting up" (defaulting to 0 width).
+        if (minX === null || maxX === null) continue;
+
+        // Apply lateral shifts (Throws + Play + Tolerances)
+        // Left Limit = minX_rotated + ShiftLeft
+        // Right Limit = maxX_rotated + ShiftRight
         
-
-        // If study vehicle doesn't exist at this height (e.g. below bounce), width is 0
-        if (studyL === null) studyL = 0;
-        if (studyR === null) studyR = 0; // Note: Ensure logic handles nulls safely
+        const studyL = minX + latBiasLeft + studyThrows.left;
+        const studyR = maxX + latBiasRight + studyThrows.right;
 
         if (envL !== null && envR !== null) {
             result.y.push(y);
