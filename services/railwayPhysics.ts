@@ -118,6 +118,46 @@ const transformRigidBody = (
     });
 };
 
+/**
+ * Generates a swept polygon using iterative steps.
+ * This effectively "sweeps" the rigid body across the throw range.
+ * Using multiple steps eliminates the "dip" artifact on the roof
+ * and avoids Minkowski Sum robustness issues with 0-degree rotations.
+ */
+const generateSweptState = (
+    shape: Point[],
+    rollAngle: number,
+    latBias: number,
+    throwLeft: number,  // Most negative shift
+    throwRight: number, // Most positive shift
+    bounce: number,
+    pivot: Point,
+    params: SimulationParams
+): Path64[] => {
+    const totalSweep = Math.abs(throwRight - throwLeft);
+    
+    // If negligible sweep, just return the start path
+    if (totalSweep < 0.1) {
+        return [transformRigidBody(shape, rollAngle, latBias + throwLeft, bounce, pivot, params)];
+    }
+
+    // Number of steps for the sweep. 
+    // 10 steps is sufficient to make the roofline appear flat (eliminates the 'dip').
+    const steps = 10; 
+    const stepSize = (throwRight - throwLeft) / steps;
+    
+    const sweptPaths: Path64[] = [];
+    for (let i = 0; i <= steps; i++) {
+        const currentThrow = throwLeft + (stepSize * i);
+        sweptPaths.push(
+            transformRigidBody(shape, rollAngle, latBias + currentThrow, bounce, pivot, params)
+        );
+    }
+
+    // Union all discrete steps to form the swept envelope
+    return Clipper.union(sweptPaths, FillRule.NonZero);
+};
+
 // --- Main Calculation ---
 
 export function calculateEnvelope(params: SimulationParams): SimulationResult {
@@ -152,38 +192,22 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const latBiasLeft = -params.latPlay - tols.latShift;
     const latBiasRight = params.latPlay + tols.latShift;
 
-    // 3. Generate Envelopes (Using Clipper)
-    // To ensure the shape is not distorted ("misshaped") during rotation, we treat the vehicle
-    // as a rigid body. The Kinematic Envelope is the union of the vehicle in its 
-    // most inward position (Center Throw) and most outward position (End Throw).
-    // We do this for both Left Lean and Right Lean states.
-
-    // --- Left Lean State ---
-    // Vehicle shifted Right (Inner limit) while leaning Left
-    const pathLL_Inner = transformRigidBody(
-        fullStaticShape, rollLeftAngle, latBiasLeft + refThrows.right, tols.bounce, pivot, params
-    );
-    // Vehicle shifted Left (Outer limit) while leaning Left
-    const pathLL_Outer = transformRigidBody(
-        fullStaticShape, rollLeftAngle, latBiasLeft + refThrows.left, tols.bounce, pivot, params
+    // --- Generate Swept Envelopes ---
+    
+    // 1. Left Lean Swept Envelope
+    const sweptLL = generateSweptState(
+        fullStaticShape, rollLeftAngle, latBiasLeft, 
+        refThrows.left, refThrows.right, tols.bounce, pivot, params
     );
 
-    // --- Right Lean State ---
-    // Vehicle shifted Right (Inner limit) while leaning Right
-    const pathRL_Inner = transformRigidBody(
-        fullStaticShape, rollRightAngle, latBiasRight + refThrows.right, tols.bounce, pivot, params
-    );
-    // Vehicle shifted Left (Outer limit) while leaning Right
-    const pathRL_Outer = transformRigidBody(
-        fullStaticShape, rollRightAngle, latBiasRight + refThrows.left, tols.bounce, pivot, params
+    // 2. Right Lean Swept Envelope
+    const sweptRL = generateSweptState(
+        fullStaticShape, rollRightAngle, latBiasRight, 
+        refThrows.left, refThrows.right, tols.bounce, pivot, params
     );
 
-    // Union all 4 rigid body states to get the swept envelope
-    const solution = Clipper.union(
-        [pathLL_Inner, pathLL_Outer], 
-        [pathRL_Inner, pathRL_Outer], 
-        FillRule.NonZero
-    );
+    // 3. Union the two swept states
+    const solution = Clipper.union(sweptLL, sweptRL, FillRule.NonZero);
     
     // Extract Envelope Polygon
     const envX: number[] = [];
@@ -195,8 +219,10 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             envX.push(p.x);
             envY.push(p.y);
         });
-        envX.push(envX[0]);
-        envY.push(envY[0]);
+        if (envX.length > 0) { // Close loop
+            envX.push(envX[0]);
+            envY.push(envY[0]);
+        }
     }
 
     // 4. Study Vehicle Visualization (Optional)
@@ -207,17 +233,17 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         { x: -halfW, y: 0 }
     ];
 
-    // Same rigid body logic for Study Vehicle
-    const sPathLL_Inner = transformRigidBody(studyBox, rollLeftAngle, latBiasLeft + studyThrows.right, tols.bounce, pivot, params);
-    const sPathLL_Outer = transformRigidBody(studyBox, rollLeftAngle, latBiasLeft + studyThrows.left, tols.bounce, pivot, params);
-    const sPathRL_Inner = transformRigidBody(studyBox, rollRightAngle, latBiasRight + studyThrows.right, tols.bounce, pivot, params);
-    const sPathRL_Outer = transformRigidBody(studyBox, rollRightAngle, latBiasRight + studyThrows.left, tols.bounce, pivot, params);
-
-    const studySolution = Clipper.union(
-        [sPathLL_Inner, sPathLL_Outer], 
-        [sPathRL_Inner, sPathRL_Outer], 
-        FillRule.NonZero
+    // Apply same swept logic for Study Vehicle
+    const sweptStudyLL = generateSweptState(
+        studyBox, rollLeftAngle, latBiasLeft,
+        studyThrows.left, studyThrows.right, tols.bounce, pivot, params
     );
+    const sweptStudyRL = generateSweptState(
+        studyBox, rollRightAngle, latBiasRight,
+        studyThrows.left, studyThrows.right, tols.bounce, pivot, params
+    );
+    
+    const studySolution = Clipper.union(sweptStudyLL, sweptStudyRL, FillRule.NonZero);
 
     const dynamicStudyX: number[] = [];
     const dynamicStudyY: number[] = [];
@@ -228,8 +254,10 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             dynamicStudyX.push(p.x);
             dynamicStudyY.push(p.y);
         });
-        dynamicStudyX.push(dynamicStudyX[0]);
-        dynamicStudyY.push(dynamicStudyY[0]);
+        if (dynamicStudyX.length > 0) {
+            dynamicStudyX.push(dynamicStudyX[0]);
+            dynamicStudyY.push(dynamicStudyY[0]);
+        }
     }
 
     // 5. Static & Ghost Visualization (Reference Only)
@@ -253,8 +281,10 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
             rotStaticX.push(p.x);
             rotStaticY.push(p.y);
         });
-        rotStaticX.push(rotStaticX[0]);
-        rotStaticY.push(rotStaticY[0]);
+        if (rotStaticX.length > 0) {
+            rotStaticX.push(rotStaticX[0]);
+            rotStaticY.push(rotStaticY[0]);
+        }
     }
 
     // 6. Study Points Analysis
