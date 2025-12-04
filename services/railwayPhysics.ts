@@ -38,30 +38,22 @@ const calculateThrows = (L: number, B: number, R_mm: number, isCW: boolean, useT
     let ET: number, CT: number;
 
     if (useTrig) {
-        // Precise calculation using exact geometry (from user images)
-        // Center Throw (CT): R - sqrt(R^2 - B^2/4)
-        // End Throw (ET): sqrt(R^2 - B^2/4) - sqrt(R^2 - L^2/4)
-        
+        // Precise calculation using exact geometry
         const halfB = B / 2;
         const halfL = L / 2;
         const R2 = Math.pow(R_mm, 2);
         const halfB2 = Math.pow(halfB, 2);
         const halfL2 = Math.pow(halfL, 2);
         
-        // Guard against mathematical impossible scenarios (B > 2R)
         if (R2 < halfB2) {
             console.warn("Radius too small for bogie centers, defaulting to approximation");
             ET = (Math.pow(L, 2) - Math.pow(B, 2)) / (8 * R_mm);
             CT = Math.pow(B, 2) / (8 * R_mm);
         } else {
             const rootB = Math.sqrt(R2 - halfB2);
-            
-            // CT = R - sqrt(R^2 - B^2/4)
             CT = R_mm - rootB;
             
-            // ET = sqrt(R^2 - B^2/4) - sqrt(R^2 - L^2/4)
             if (R2 < halfL2) {
-                // Should not happen in standard rail contexts (Radius < Half Vehicle Length)
                 ET = (Math.pow(L, 2) - Math.pow(B, 2)) / (8 * R_mm);
             } else {
                 const rootL = Math.sqrt(R2 - halfL2);
@@ -75,8 +67,7 @@ const calculateThrows = (L: number, B: number, R_mm: number, isCW: boolean, useT
     }
 
     // Apply direction logic
-    // CW (Right Turn): Right=Inner(CT), Left=Outer(ET)
-    // CCW (Left Turn): Right=Outer(ET), Left=Inner(CT)
+    // CW (Right Turn): Right=Inner(CT), Left=Outer(ET) -> Shifts: Right (+CT), Left (-ET)
     const shiftRight = isCW ? CT : ET;
     const shiftLeft = isCW ? -ET : -CT;
 
@@ -96,32 +87,31 @@ const calculateTolerances = (params: SimulationParams) => {
     return { latShift, cantTolDeg, bounce };
 };
 
-const transformPath = (
+/**
+ * Transforms a shape as a Rigid Body. 
+ * Applies Bounce -> Rotation -> Uniform Lateral Shift.
+ * Prevents distortion of the shape during rotation.
+ */
+const transformRigidBody = (
     shape: Point[], 
     rollAngle: number, 
-    lateralBias: number, 
-    throwRight: number, 
-    throwLeft: number,
+    totalLateralShift: number, 
     bounce: number,
     pivot: Point,
     params: SimulationParams
 ): Path64 => {
     return shape.map(p => {
-        // 1. Vertical Bounce
+        // 1. Vertical Bounce (Suspension extension)
         let y_bounced = p.y;
         if (p.y > params.bounceYThreshold) {
             y_bounced += bounce;
         }
 
-        // 2. Rotation
+        // 2. Rotation (Rigid body rotation around pivot)
         const rot = getRotatedCoords(p.x, y_bounced, rollAngle, pivot.x, pivot.y);
 
-        // 3. Lateral Shift (Geometric Throw + Play + Bias)
-        const geomThrow = (p.x >= 0) ? throwRight : throwLeft;
-        const totalLat = lateralBias + geomThrow;
-        
-        // 4. Final Coordinates
-        const finalX = rot.x + totalLat;
+        // 3. Lateral Shift (Translation of the entire body)
+        const finalX = rot.x + totalLateralShift;
         const finalY = params.considerYRotation ? rot.y : y_bounced;
 
         return toPoint64({ x: finalX, y: finalY });
@@ -158,22 +148,42 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     let rollLeftAngle = Math.abs(params.roll) + cantBiasAngle + tols.cantTolDeg;
     let rollRightAngle = -Math.abs(params.roll) + cantBiasAngle - tols.cantTolDeg;
 
-    const latShiftLeft = -params.latPlay - tols.latShift;
-    const latShiftRight = params.latPlay + tols.latShift;
+    // Lateral Biases (Play + Tolerances)
+    const latBiasLeft = -params.latPlay - tols.latShift;
+    const latBiasRight = params.latPlay + tols.latShift;
 
     // 3. Generate Envelopes (Using Clipper)
-    // Left Lean State
-    const pathLeft = transformPath(
-        fullStaticShape, rollLeftAngle, latShiftLeft, 
-        refThrows.right, refThrows.left, tols.bounce, pivot, params
+    // To ensure the shape is not distorted ("misshaped") during rotation, we treat the vehicle
+    // as a rigid body. The Kinematic Envelope is the union of the vehicle in its 
+    // most inward position (Center Throw) and most outward position (End Throw).
+    // We do this for both Left Lean and Right Lean states.
+
+    // --- Left Lean State ---
+    // Vehicle shifted Right (Inner limit) while leaning Left
+    const pathLL_Inner = transformRigidBody(
+        fullStaticShape, rollLeftAngle, latBiasLeft + refThrows.right, tols.bounce, pivot, params
     );
-    // Right Lean State
-    const pathRight = transformPath(
-        fullStaticShape, rollRightAngle, latShiftRight, 
-        refThrows.right, refThrows.left, tols.bounce, pivot, params
+    // Vehicle shifted Left (Outer limit) while leaning Left
+    const pathLL_Outer = transformRigidBody(
+        fullStaticShape, rollLeftAngle, latBiasLeft + refThrows.left, tols.bounce, pivot, params
     );
 
-    const solution = Clipper.union([pathLeft], [pathRight], FillRule.NonZero);
+    // --- Right Lean State ---
+    // Vehicle shifted Right (Inner limit) while leaning Right
+    const pathRL_Inner = transformRigidBody(
+        fullStaticShape, rollRightAngle, latBiasRight + refThrows.right, tols.bounce, pivot, params
+    );
+    // Vehicle shifted Left (Outer limit) while leaning Right
+    const pathRL_Outer = transformRigidBody(
+        fullStaticShape, rollRightAngle, latBiasRight + refThrows.left, tols.bounce, pivot, params
+    );
+
+    // Union all 4 rigid body states to get the swept envelope
+    const solution = Clipper.union(
+        [pathLL_Inner, pathLL_Outer], 
+        [pathRL_Inner, pathRL_Outer], 
+        FillRule.NonZero
+    );
     
     // Extract Envelope Polygon
     const envX: number[] = [];
@@ -197,15 +207,17 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         { x: -halfW, y: 0 }
     ];
 
-    const studyPathLeft = transformPath(
-        studyBox, rollLeftAngle, latShiftLeft, 
-        studyThrows.right, studyThrows.left, tols.bounce, pivot, params
+    // Same rigid body logic for Study Vehicle
+    const sPathLL_Inner = transformRigidBody(studyBox, rollLeftAngle, latBiasLeft + studyThrows.right, tols.bounce, pivot, params);
+    const sPathLL_Outer = transformRigidBody(studyBox, rollLeftAngle, latBiasLeft + studyThrows.left, tols.bounce, pivot, params);
+    const sPathRL_Inner = transformRigidBody(studyBox, rollRightAngle, latBiasRight + studyThrows.right, tols.bounce, pivot, params);
+    const sPathRL_Outer = transformRigidBody(studyBox, rollRightAngle, latBiasRight + studyThrows.left, tols.bounce, pivot, params);
+
+    const studySolution = Clipper.union(
+        [sPathLL_Inner, sPathLL_Outer], 
+        [sPathRL_Inner, sPathRL_Outer], 
+        FillRule.NonZero
     );
-    const studyPathRight = transformPath(
-        studyBox, rollRightAngle, latShiftRight, 
-        studyThrows.right, studyThrows.left, tols.bounce, pivot, params
-    );
-    const studySolution = Clipper.union([studyPathLeft], [studyPathRight], FillRule.NonZero);
 
     const dynamicStudyX: number[] = [];
     const dynamicStudyY: number[] = [];
@@ -220,7 +232,8 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         dynamicStudyY.push(dynamicStudyY[0]);
     }
 
-    // 5. Static & Ghost Visualization
+    // 5. Static & Ghost Visualization (Reference Only)
+    // Rotated Static Ghost (Visual Context - No lateral shift, just rotation)
     const rotPathStaticLeft = fullStaticShape.map(p => {
         const rot = getRotatedCoords(p.x, p.y, rollLeftAngle, pivot.x, pivot.y);
         return toPoint64({ x: rot.x, y: params.considerYRotation ? rot.y : p.y });
@@ -249,7 +262,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const studyPoints = calculateStudyPoints(
         params, rawPointsRight, rawPointsLeft, 
         tols.bounce, pivot, rollLeftAngle, rollRightAngle, 
-        latShiftLeft, latShiftRight, studyThrows, 
+        latBiasLeft, latBiasRight, studyThrows, 
         envelopePoly, rotStaticX, rotStaticY, isCW
     );
 
@@ -257,14 +270,9 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const ys = rawPointsRight.map(p => p.y);
     const maxY = Math.max(...ys);
     
-    // Determine the study vehicle throw offset to subtract
-    // If CW (Right Turn): Left is Outer (Subtract ET), Right is Inner (Subtract CT)
-    // If CCW (Left Turn): Left is Inner (Subtract CT), Right is Outer (Subtract ET)
     const subtractLeft = isCW ? studyThrows.ET : studyThrows.CT;
     const subtractRight = isCW ? studyThrows.CT : studyThrows.ET;
 
-    // Calculate Deltas by iterating every 1mm from 0 to maxY
-    // Subtracting the study vehicle throw from the envelope width
     const deltaGraphData = calculateDeltaCurvesIterative(
         0, maxY, envelopePoly, subtractLeft, subtractRight, halfW
     );
@@ -315,15 +323,12 @@ function calculateDeltaCurvesIterative(
 ): DeltaCurveData {
     const result: DeltaCurveData = { y: [], deltaLeft: [], deltaRight: [] };
 
-    // Iterate 1mm steps from 0 to Max Height
     for (let y = minY; y <= maxY; y += 1) {
-        // Get Envelope Boundary at this height
         const envL = getXAtY(y, envelope, 'left');
         const envR = getXAtY(y, envelope, 'right');
 
         if (envL !== null && envR !== null) {
             result.y.push(y);
-            // Output absolute X values (Envelope Widths) minus the Study Vehicle Throw and Half Width
             result.deltaLeft.push(Math.abs(envL) - subtractLeft - halfWidth); 
             result.deltaRight.push(Math.abs(envR) - subtractRight - halfWidth);
         }
@@ -370,14 +375,9 @@ function calculateStudyPoints(
 
         // Critical logic: Right side -> Max X, Left side -> Min X
         const finalP = (isRight ? (x1 > x2) : (x1 < x2)) ? { x: x1, y: y1 } : { x: x2, y: y2 };
-        // Fix variable names from copy/paste (x_1 -> x1)
         if (isRight) {
-             // For Right Side (positive X), critical is Max X
-             // If leaned right > leaned left
              if (x2 > x1) { finalP.x = x2; finalP.y = y2; } else { finalP.x = x1; finalP.y = y1; }
         } else {
-             // For Left Side (negative X), critical is Min X
-             // If leaned left < leaned right
              if (x1 < x2) { finalP.x = x1; finalP.y = y1; } else { finalP.x = x2; finalP.y = y2; }
         }
 
@@ -387,18 +387,14 @@ function calculateStudyPoints(
         const rotStaticXAtY = getXAtY(finalP.y, rotStaticPoly, side);
         const origStaticX = getXAtY(finalP.y, isRight ? rawRight : rawLeft, side);
 
-        // Fail Check Logic (Matches Main Branch)
         const isInside = pointInPolygon(finalP, envelope);
         const dist = minDistanceToEdges(finalP, envelope);
         
         let status: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
 
         if (dist <= TOLERANCE) {
-            // Effectively on the boundary (within tolerance)
-            // This captures points that are technically inside OR outside but very close
             status = 'BOUNDARY';
         } else if (!isInside) {
-            // Strictly outside and not on boundary
             status = 'FAIL';
         }
 
@@ -455,7 +451,6 @@ function minDistanceToEdges(p: Point, poly: Point[]): number {
         const v = poly[i];
         const w = poly[(i + 1) % poly.length];
         
-        // Segment distance squared
         const l2 = Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
         let t = 0;
         if (l2 === 0) {
