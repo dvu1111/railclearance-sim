@@ -1,13 +1,16 @@
 import React from 'react';
-import { SimulationParams } from '../types';
+import { SimulationParams, SimulationResult } from '../types';
 import { OUTLINE_DATA_SETS } from '../constants';
 
 interface ControlPanelProps {
   params: SimulationParams;
   onUpdate: (updates: Partial<SimulationParams>) => void;
+  // New props for export functionality
+  simulationResult: SimulationResult | null; 
+  onExport: (type: 'static' | 'kinematic') => void;
 }
 
-const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate }) => {
+const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate, simulationResult, onExport }) => {
 
   const handleNum = (field: keyof SimulationParams, val: string) => {
     const num = parseFloat(val);
@@ -20,6 +23,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate }) => {
 
   const handleBool = (field: keyof SimulationParams, val: boolean) => {
     onUpdate({ [field]: val });
+  };
+
+  const handleExportClick = (type: 'static' | 'kinematic') => {
+    // We already check for !simulationResult via the disabled prop on the button
+    onExport(type);
   };
 
   return (
@@ -205,7 +213,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate }) => {
       </section>
 
       {/* Options */}
-      <section className="bg-white border border-gray-300 p-3 rounded shadow-sm space-y-2">
+      <section className="bg-white border border-gray-300 p-3 rounded shadow-sm space-y-2 mb-4">
           <label className="flex items-center gap-2 cursor-pointer">
               <input
                   type="checkbox"
@@ -238,6 +246,29 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate }) => {
               />
               <span className="text-xs font-bold text-gray-700">Show Delta Graph</span>
           </label>
+      </section>
+
+      {/* Export Data Section */}
+      <section className="bg-white border-l-4 border-gray-500 border-gray-300 border p-3 rounded shadow-sm">
+        <h3 className="font-bold text-gray-800 mb-2 border-b pb-1">Export Data</h3>
+        <div className="flex flex-col space-y-2">
+            <button
+                onClick={() => handleExportClick('kinematic')}
+                disabled={!simulationResult}
+                className="w-full text-sm font-medium px-4 py-2 rounded bg-gray-500 text-white hover:bg-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Export Kinematic Envelope Coordinates"
+            >
+                Export Kinematic Envelope (CSV)
+            </button>
+            <button
+                onClick={() => handleExportClick('static')}
+                disabled={!simulationResult}
+                className="w-full text-sm font-medium px-4 py-2 rounded bg-gray-500 text-white hover:bg-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Export Static Outline Coordinates"
+            >
+                Export Static Outline (CSV)
+            </button>
+        </div>
       </section>
     </div>
   );
