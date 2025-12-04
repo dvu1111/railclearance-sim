@@ -22,7 +22,7 @@ export const TRACK_TOLERANCES: Record<string, ToleranceSet> = {
 export const OUTLINE_DATA_SETS: Record<string, VehicleOutlineData> = {
 
   'RS1.1': {
-      L: 16200, B: 11000, h_roll: 1100,
+      L: 16200, B: 11000, h_roll: 1100, w_factor: 1925,
       points: [
           {x:0, y:65}, {x:1195, y:65}, {x:1245, y:180}, {x:1245, y:305}, {x:1270, y:305},
           {x:1270, y:535}, {x:1220, y:535}, {x:1220, y:825}, {x:1315, y:915}, {x:1425, y:915},
@@ -32,7 +32,7 @@ export const OUTLINE_DATA_SETS: Record<string, VehicleOutlineData> = {
       ]
   },
   'RS2.1': {
-      L: 19150, B: 14000, h_roll: 1100,
+      L: 19150, B: 14000, h_roll: 1100, w_factor: 1925,
       points: [
           {x:0, y:65}, {x:1195, y:65}, {x:1245, y:180}, {x:1245, y:305}, {x:1270, y:305},
           {x:1270, y:535}, {x:1245, y:535}, {x:1245, y:845}, {x:1315, y:915}, {x:1450, y:915},
@@ -40,7 +40,7 @@ export const OUTLINE_DATA_SETS: Record<string, VehicleOutlineData> = {
       ]
   },
   'RS3.1': {
-      L: 19150, B: 14000, h_roll: 1100,
+      L: 19150, B: 14000, h_roll: 1100, w_factor: 1925,
       points: [
           {x:0, y:65}, {x:1195, y:65}, {x:1245, y:180}, {x:1245, y:305}, {x:1270, y:305},
           {x:1270, y:535}, {x:1245, y:535}, {x:1245, y:845}, {x:1315, y:915}, {x:1450, y:915},
@@ -48,7 +48,7 @@ export const OUTLINE_DATA_SETS: Record<string, VehicleOutlineData> = {
       ]
   },
   'RS4.1': {
-      L: 21000, B: 15850, h_roll: 1100,
+      L: 21000, B: 15850, h_roll: 1100, w_factor: 1925,
       points: [
           {x:0, y:65}, {x:1195, y:65}, {x:1245, y:180}, {x:1245, y:305}, {x:1270, y:305},
           {x:1270, y:535}, {x:1245, y:535}, {x:1245, y:845}, {x:1315, y:915}, {x:1430, y:915},
@@ -56,7 +56,7 @@ export const OUTLINE_DATA_SETS: Record<string, VehicleOutlineData> = {
       ]
   },
   'RS5A': {
-    L: 13110, B: 11970, h_roll: 610,
+    L: 13110, B: 11970, h_roll: 610, w_factor: 2025,
     points: [
       { x: 0,    y: 65 },
       { x: 1195, y: 65 },
@@ -74,7 +74,7 @@ export const OUTLINE_DATA_SETS: Record<string, VehicleOutlineData> = {
     ]
   },
   'RS5B': {
-    L: 15000, B: 11970, h_roll: 610,
+    L: 15000, B: 11970, h_roll: 610, w_factor: 2025,
     points: [
       { x: 0,    y: 65 },
       { x: 1195, y: 65 },
@@ -90,7 +90,7 @@ export const OUTLINE_DATA_SETS: Record<string, VehicleOutlineData> = {
     ]
   },
   'RS6': {
-    L: 21500, B: 16000, h_roll: 437,
+    L: 21500, B: 16000, h_roll: 437, w_factor: 2025,
     points: [
       { x: 0,    y: 65 },
       { x: 1065, y: 145 },
@@ -116,7 +116,7 @@ export const OUTLINE_DATA_SETS: Record<string, VehicleOutlineData> = {
   },
 
   'RS7': {
-    L: 21500, B: 16000, h_roll: 437,
+    L: 21500, B: 16000, h_roll: 437, w_factor: 2025,
     points: [
       { x: 0,    y: 65 },
       { x: 1195, y: 65 },

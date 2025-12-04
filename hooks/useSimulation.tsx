@@ -20,6 +20,7 @@ const DEFAULT_PARAMS: SimulationParams = {
     tol_vert: 25,
     tol_cant: 10, 
     tol_gw: 25,
+    w_factor: 1925,
     appliedCant: 0,
     roll: 0,
     latPlay: 0,

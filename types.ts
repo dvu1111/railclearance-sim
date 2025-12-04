@@ -8,6 +8,7 @@ export interface VehicleOutlineData {
   B: number;
   h_roll: number;
   points: Point[];
+  w_factor: number; //structure gauge width factor
 }
 
 export interface ToleranceSet {
@@ -46,6 +47,9 @@ export interface SimulationParams {
   tol_vert: number;
   tol_cant: number;
   tol_gw: number;
+
+  // Structural gauge
+  w_factor: number;
 
   // Dynamics
   roll: number; // degrees
