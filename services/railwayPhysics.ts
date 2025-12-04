@@ -504,16 +504,24 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         envelopePoly, rotStaticX, rotStaticY, isCW,
         structureGauge
     );
+    // Helper for zipping for deltagraph
+    const dynamicStudyPoly: Point[] = dynamicStudyX.map((x, i) => ({ 
+        x, 
+        y: dynamicStudyY[i] 
+    }));
 
-    // 9. Delta Curve
+    // 9. Delta Curve (Clearance Graph)
     const ys = rawPointsRight.map(p => p.y);
-    const maxY = Math.max(...ys);
-    
-    const subtractLeft = isCW ? studyThrows.ET : studyThrows.CT;
-    const subtractRight = isCW ? studyThrows.CT : studyThrows.ET;
+    const maxY = Math.max(...ys) + tols.bounce + 100;
 
+    // We no longer need to pass 'subtractLeft/Right' (Throws) because
+    // the dynamicStudyPoly already has them applied physically.
     const deltaGraphData = calculateDeltaCurvesIterative(
-        0, maxY, envelopePoly, subtractLeft, subtractRight, halfW
+        0, 
+        maxY, 
+        params.h,
+        envelopePoly, 
+        dynamicStudyPoly // <--- Pass the Dynamic Study Vehicle
     );
 
     // 10. Status
@@ -555,22 +563,42 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 }
 
 function calculateDeltaCurvesIterative(
-    minY: number, maxY: number, 
+    minY: number, maxY: number, curY: number,
     envelope: Point[],
-    subtractLeft: number,
-    subtractRight: number,
-    halfWidth: number
+    dynamicStudyPoly: Point[] 
 ): DeltaCurveData {
     const result: DeltaCurveData = { y: [], deltaLeft: [], deltaRight: [] };
 
-    for (let y = minY; y <= maxY; y += 1) {
+    // Iterate through height in 10mm steps
+    for (let y = minY; y <= maxY; y += 10) {
+        
+        // 1. Get Reference Envelope X (The Limit)
         const envL = getXAtY(y, envelope, 'left');
         const envR = getXAtY(y, envelope, 'right');
 
+        // 2. Get Dynamic Study Vehicle X (The Object being checked)
+        // This polygon already includes throws, roll, bounce, and lat play.
+        let studyL = getXAtY(y, dynamicStudyPoly, 'left');
+        console.log(dynamicStudyPoly)
+        let studyR = getXAtY(y, dynamicStudyPoly, 'right');
+
+        // If study vehicle doesn't exist at this height (e.g. below bounce), width is 0
+        if (studyL === null) studyL = 0;
+        if (studyR === null) studyR = 0; // Note: Ensure logic handles nulls safely
+
         if (envL !== null && envR !== null) {
             result.y.push(y);
-            result.deltaLeft.push(Math.abs(envL) - subtractLeft - halfWidth); 
-            result.deltaRight.push(Math.abs(envR) - subtractRight - halfWidth);
+
+            // 3. Calculate Clearance Distance
+            // Distance = Envelope Boundary - Study Vehicle Boundary
+            // Positive value = CLEARANCE (Safe)
+            // Negative value = FOULING (Collision)
+        
+            const distLeft = (y < curY) ? Math.abs(envL) - Math.abs(studyL) : Math.abs(envL) - Math.abs(studyL);
+            const distRight = Math.abs(envR) - Math.abs(studyR);
+
+            result.deltaLeft.push(distLeft);
+            result.deltaRight.push(distRight);
         }
     }
     return result;
