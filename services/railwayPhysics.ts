@@ -579,7 +579,6 @@ function calculateDeltaCurvesIterative(
         // 2. Get Dynamic Study Vehicle X (The Object being checked)
         // This polygon already includes throws, roll, bounce, and lat play.
         let studyL = getXAtY(y, dynamicStudyPoly, 'left');
-        console.log(dynamicStudyPoly)
         let studyR = getXAtY(y, dynamicStudyPoly, 'right');
 
         // If study vehicle doesn't exist at this height (e.g. below bounce), width is 0
