@@ -7,7 +7,7 @@ import { SimulationResult } from './types';
 // Helper function to convert coordinates to CSV format
 const convertCoordinatesToCsv = (
     outlineName: string, 
-    type: 'Kinematic' | 'Static', 
+    type: 'Kinematic' | 'Static' | 'Rotated Static', 
     xCoords: number[], 
     yCoords: number[]
 ): string => {
@@ -29,7 +29,7 @@ const convertCoordinatesToCsv = (
 const App: React.FC = () => {
     const { params, updateParams, simulationResult } = useSimulation();
 
-    const handleExport = useCallback((type: 'static' | 'kinematic') => {
+    const handleExport = useCallback((type: 'static' | 'kinematic' | 'rotated-static') => {
         if (!simulationResult) {
             console.error("Attempted export without a valid simulation result.");
             return;
@@ -40,7 +40,7 @@ const App: React.FC = () => {
         let xCoords: number[];
         let yCoords: number[];
         let fileNameType: string;
-        let dataLabel: 'Static' | 'Kinematic';
+        let dataLabel: 'Static' | 'Kinematic' | 'Rotated Static';
 
         if (type === 'kinematic') {
             // Kinematic Envelope (Dynamic Envelope) coordinates.
@@ -49,6 +49,14 @@ const App: React.FC = () => {
             yCoords = polygons.left.y.slice(0, -1);
             fileNameType = 'kinematic_envelope';
             dataLabel = 'Kinematic';
+        } else if (type === 'rotated-static') {
+            // Rotated Static Outline coordinates (Ghost outline)
+            // Note: These might be empty if rotation/cant/tolerances don't produce a distinct ghost shape,
+            // but usually they contain the bounds of the static vehicle rotated by the roll angle.
+            xCoords = polygons.left.rot_static_x.slice(0, -1);
+            yCoords = polygons.left.rot_static_y.slice(0, -1);
+            fileNameType = 'rotated_static_outline';
+            dataLabel = 'Rotated Static';
         } else {
             // Static Outline coordinates.
             xCoords = polygons.left.static_x;

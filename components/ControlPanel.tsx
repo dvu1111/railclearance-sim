@@ -7,7 +7,7 @@ interface ControlPanelProps {
   onUpdate: (updates: Partial<SimulationParams>) => void;
   // New props for export functionality
   simulationResult: SimulationResult | null; 
-  onExport: (type: 'static' | 'kinematic') => void;
+  onExport: (type: 'static' | 'kinematic' | 'rotated-static') => void;
 }
 
 const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate, simulationResult, onExport }) => {
@@ -25,7 +25,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate, simulatio
     onUpdate({ [field]: val });
   };
 
-  const handleExportClick = (type: 'static' | 'kinematic') => {
+  const handleExportClick = (type: 'static' | 'kinematic' | 'rotated-static') => {
     // We already check for !simulationResult via the disabled prop on the button
     onExport(type);
   };
@@ -267,6 +267,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate, simulatio
                 aria-label="Export Static Outline Coordinates"
             >
                 Export Static Outline (CSV)
+            </button>
+            <button
+                onClick={() => handleExportClick('rotated-static')}
+                disabled={!simulationResult}
+                className="w-full text-sm font-medium px-4 py-2 rounded bg-gray-500 text-white hover:bg-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Export Rotated Static Outline Coordinates"
+            >
+                Export Rotated Static Outline (CSV)
             </button>
         </div>
       </section>
