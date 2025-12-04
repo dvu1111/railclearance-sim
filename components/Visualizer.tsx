@@ -234,7 +234,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
         const layout: Partial<Layout> = {
             autosize: true,
             title: {
-                text: `<b>Vehicle Outline Simulation</b><br><span style="font-size: 12px;">${directionText}</span><br><span style="font-size: 11px; color: #555;">${statsLabel}</span>`,
+                text: `<b>Vehicle Outline Simulation - WORK IN PROGRESS, MAY BE INACCURATE</b><br><span style="font-size: 12px;">${directionText}</span><br><span style="font-size: 11px; color: #555;">${statsLabel}</span>`,
                 font: { family: 'Arial', size: 18 }
             },
             font: { family: 'Arial, sans-serif' },
