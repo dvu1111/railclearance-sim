@@ -32,7 +32,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate, simulatio
 
   return (
     <div className="h-full overflow-y-auto p-4 bg-gray-50 text-sm">
-      <h1 className="text-xl font-bold mb-4 text-gray-900">Input Parameters</h1>
+      <h1 className="text-xl font-bold mb-4 text-gray-900">By DVU</h1>
 
       {/* Geometry */}
       <section className="bg-white border border-gray-300 p-3 mb-4 rounded shadow-sm">
