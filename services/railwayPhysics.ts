@@ -141,8 +141,7 @@ const generateSweptState = (
         return [transformRigidBody(shape, rollAngle, latBias + throwLeft, bounce, pivot, params)];
     }
 
-    // Number of steps for the sweep. 
-    // 10 steps is sufficient to make the roofline appear flat (eliminates the 'dip').
+    // Number of steps for the lateral sweep. 
     const steps = 10; 
     const stepSize = (throwRight - throwLeft) / steps;
     
@@ -156,6 +155,44 @@ const generateSweptState = (
 
     // Union all discrete steps to form the swept envelope
     return Clipper.union(sweptPaths, FillRule.NonZero);
+};
+
+/**
+ * Performs a 2D sweep across both Roll and Lateral dimensions.
+ * Iterates through Roll angles, and for each angle, performs a lateral sweep.
+ * Unions everything to create the final Kinematic Envelope.
+ */
+const generateFullKinematicEnvelope = (
+    shape: Point[],
+    rollLeft: number,   // Max Roll Left (positive)
+    rollRight: number,  // Max Roll Right (negative/smaller)
+    totalMinLat: number, // Most negative lateral position (bias + throw)
+    totalMaxLat: number, // Most positive lateral position (bias + throw)
+    bounce: number,
+    pivot: Point,
+    params: SimulationParams
+): Path64[] => {
+    // Number of steps for the Roll sweep.
+    // 5 steps is usually sufficient to capture the arc of the roof.
+    // (e.g., -2°, -1°, 0°, 1°, 2°)
+    const rollSteps = 100;
+    const allPaths: Path64[] = [];
+
+    for (let i = 0; i <= rollSteps; i++) {
+        // Interpolate roll angle
+        const t = i / rollSteps;
+        const currentRoll = rollRight + (rollLeft - rollRight) * t;
+
+        // For this specific roll angle, sweep laterally from Min to Max
+        // We pass 0 as latBias because we've already combined bias + throw into Min/MaxLat
+        const lateralSweptPaths = generateSweptState(
+            shape, currentRoll, 0, totalMinLat, totalMaxLat, bounce, pivot, params
+        );
+        
+        allPaths.push(...lateralSweptPaths);
+    }
+
+    return Clipper.union(allPaths, FillRule.NonZero);
 };
 
 // --- Main Calculation ---
@@ -192,22 +229,22 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const latBiasLeft = -params.latPlay - tols.latShift;
     const latBiasRight = params.latPlay + tols.latShift;
 
-    // --- Generate Swept Envelopes ---
-    
-    // 1. Left Lean Swept Envelope
-    const sweptLL = generateSweptState(
-        fullStaticShape, rollLeftAngle, latBiasLeft, 
-        refThrows.left, refThrows.right, tols.bounce, pivot, params
-    );
+    // Combined Lateral Limits
+    // The envelope must cover the vehicle from its most-left position to its most-right position
+    const totalMinLat = latBiasLeft + refThrows.left;
+    const totalMaxLat = latBiasRight + refThrows.right;
 
-    // 2. Right Lean Swept Envelope
-    const sweptRL = generateSweptState(
-        fullStaticShape, rollRightAngle, latBiasRight, 
-        refThrows.left, refThrows.right, tols.bounce, pivot, params
+    // 3. Generate Full Kinematic Envelope (Sweeping Roll & Lateral)
+    const solution = generateFullKinematicEnvelope(
+        fullStaticShape,
+        rollLeftAngle,
+        rollRightAngle,
+        totalMinLat,
+        totalMaxLat,
+        tols.bounce,
+        pivot,
+        params
     );
-
-    // 3. Union the two swept states
-    const solution = Clipper.union(sweptLL, sweptRL, FillRule.NonZero);
     
     // Extract Envelope Polygon
     const envX: number[] = [];
@@ -233,17 +270,20 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         { x: -halfW, y: 0 }
     ];
 
-    // Apply same swept logic for Study Vehicle
-    const sweptStudyLL = generateSweptState(
-        studyBox, rollLeftAngle, latBiasLeft,
-        studyThrows.left, studyThrows.right, tols.bounce, pivot, params
+    // Combined Lateral Limits for Study Vehicle
+    const studyMinLat = latBiasLeft + studyThrows.left;
+    const studyMaxLat = latBiasRight + studyThrows.right;
+
+    const studySolution = generateFullKinematicEnvelope(
+        studyBox,
+        rollLeftAngle,
+        rollRightAngle,
+        studyMinLat,
+        studyMaxLat,
+        tols.bounce,
+        pivot,
+        params
     );
-    const sweptStudyRL = generateSweptState(
-        studyBox, rollRightAngle, latBiasRight,
-        studyThrows.left, studyThrows.right, tols.bounce, pivot, params
-    );
-    
-    const studySolution = Clipper.union(sweptStudyLL, sweptStudyRL, FillRule.NonZero);
 
     const dynamicStudyX: number[] = [];
     const dynamicStudyY: number[] = [];
