@@ -50,6 +50,7 @@ export interface SimulationParams {
 
   // Structural gauge
   w_factor: number;
+  enableStructureGauge: boolean; // New Parameter
 
   // Dynamics
   roll: number; // degrees
@@ -75,6 +76,7 @@ export interface StudyPointResult {
   origStaticX: number | null;
   envX: number | null;
   staticStudyX: number | null; 
+  structureX: number | null; // New: X position of structure gauge at this side
   status: 'PASS' | 'FAIL' | 'BOUNDARY';
 }
 
@@ -100,6 +102,11 @@ export interface DeltaCurveData {
   deltaRight: number[];
 }
 
+export interface StructureGaugeData {
+  leftX: number;
+  rightX: number;
+}
+
 export interface SimulationResult {
   polygons: {
     left: PolyCoords;
@@ -108,6 +115,7 @@ export interface SimulationResult {
   studyVehicle: StudyVehicleCoords; 
   studyPoints: StudyPointResult[];
   deltaGraphData: DeltaCurveData;
+  structureGauge?: StructureGaugeData; // New result data
   globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY';
   calculatedParams: {
     rollUsed: number;

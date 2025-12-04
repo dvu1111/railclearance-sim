@@ -12,7 +12,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
     
     const mainPlot = useMemo(() => {
         const traces: Data[] = [];
-        const { polygons, studyVehicle, studyPoints, globalStatus, calculatedParams, pivot } = data;
+        const { polygons, studyVehicle, studyPoints, globalStatus, calculatedParams, pivot, structureGauge } = data;
 
         // 1. Dynamic Envelope (Filled)
         const envX = [...polygons.left.x, ...[...polygons.right.x].reverse(), polygons.left.x[0]];
@@ -83,7 +83,34 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             }
         }
 
-        // 5. Study Points & Measurements
+        // 5. Structure Gauge Lines
+        if (params.enableStructureGauge && structureGauge) {
+            const maxY = Math.max(...polygons.right.static_y, 4000); // Default high if no points
+            
+            // Left Structure Line
+            traces.push({
+                x: [structureGauge.leftX, structureGauge.leftX],
+                y: [0, maxY],
+                mode: 'lines',
+                line: { color: '#444', dash: 'longdash', width: 3 },
+                name: 'Structure Gauge',
+                legendgroup: 'structure',
+                hoverinfo: 'x',
+            });
+
+            // Right Structure Line
+            traces.push({
+                x: [structureGauge.rightX, structureGauge.rightX],
+                y: [0, maxY],
+                mode: 'lines',
+                line: { color: '#444', dash: 'longdash', width: 3 },
+                legendgroup: 'structure',
+                showlegend: false,
+                hoverinfo: 'x',
+            });
+        }
+
+        // 6. Study Points & Measurements
         studyPoints.forEach((sp, i) => {
             const y = sp.p.y;
             const color = sp.throwType === 'ET' ? '#059669' : '#d946ef';
@@ -121,22 +148,43 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             addMeasure(sp.rotStaticX, 'Δ Static', 'red', 'delta_static');
             if (params.showStudyVehicle) addMeasure(sp.staticStudyX, 'Δ Study Veh', '#2563eb', 'delta_study');
 
+            // --- Structure Gauge Measurement ---
+            // Draw from Envelope X (if available) to Structure X, otherwise from point p to structure
+            if (params.enableStructureGauge && sp.structureX !== null && sp.envX !== null) {
+                traces.push({
+                    x: [sp.envX, sp.structureX], y: [y, y],
+                    mode: 'lines',
+                    line: { color: '#666', dash: 'dot', width: 2 },
+                    name: 'Δ Structure',
+                    legendgroup: 'delta_struct',
+                    showlegend: i === 0,
+                    hoverinfo: 'text',
+                    text: `Δ Structure: ${Math.abs(sp.envX - sp.structureX).toFixed(2)}mm`
+                });
+            }
+
             // --- DETAILED TEXT LABELS ---
             const valStatic = sp.rotStaticX !== null ? Math.abs(sp.p.x - sp.rotStaticX).toFixed(2) : '-';
             const valEnv = sp.envX !== null ? Math.abs(sp.p.x - sp.envX).toFixed(2) : '-';
             const valStudy = (params.showStudyVehicle && sp.staticStudyX !== null) 
                 ? Math.abs(sp.p.x - sp.staticStudyX).toFixed(2) 
                 : null;
+            const valStruct = (params.enableStructureGauge && sp.structureX !== null && sp.envX !== null)
+                ? Math.abs(sp.envX - sp.structureX).toFixed(2)
+                : null;
 
             let textAnchorX = sp.p.x;
+            // Adjust label anchor based on what lines are shown to avoid overlap
             if (sp.side === 'left') {
                 if (sp.envX !== null) textAnchorX = Math.min(textAnchorX, sp.envX);
                 if (sp.rotStaticX !== null) textAnchorX = Math.min(textAnchorX, sp.rotStaticX);
                 if (sp.staticStudyX !== null && params.showStudyVehicle) textAnchorX = Math.min(textAnchorX, sp.staticStudyX);
+                if (sp.structureX !== null && params.enableStructureGauge) textAnchorX = Math.min(textAnchorX, sp.structureX);
             } else {
                 if (sp.envX !== null) textAnchorX = Math.max(textAnchorX, sp.envX);
                 if (sp.rotStaticX !== null) textAnchorX = Math.max(textAnchorX, sp.rotStaticX);
                 if (sp.staticStudyX !== null && params.showStudyVehicle) textAnchorX = Math.max(textAnchorX, sp.staticStudyX);
+                if (sp.structureX !== null && params.enableStructureGauge) textAnchorX = Math.max(textAnchorX, sp.structureX);
             }
             
             const offset = sp.side === 'left' ? -20 : 20;
@@ -148,6 +196,10 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             
             if (valStudy !== null) {
                 labelHtml += `<br><span style="color: #2563eb; font-weight:bold;">Δ Study: ${valStudy}</span>`;
+            }
+
+            if (valStruct !== null) {
+                labelHtml += `<br><span style="color: #444; font-weight:bold;">Δ Structure: ${valStruct}</span>`;
             }
 
             traces.push({
@@ -163,7 +215,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
             });
         });
 
-        // 6. Pivot
+        // 7. Pivot
         traces.push({
             x: [pivot.x], y: [pivot.y],
             mode: 'markers', marker: { size: 12, color: 'black', symbol: 'x' },

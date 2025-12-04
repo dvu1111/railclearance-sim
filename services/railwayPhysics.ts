@@ -1,5 +1,5 @@
 import { OUTLINE_DATA_SETS } from "../constants";
-import { Point, SimulationParams, SimulationResult, StudyPointResult, DeltaCurveData } from "../types";
+import { Point, SimulationParams, SimulationResult, StudyPointResult, DeltaCurveData, StructureGaugeData } from "../types";
 import { Clipper, Path64, Point64, FillRule, Paths64 } from "../lib/clipper2-ts/index";
 
 // --- Constants & Helpers ---
@@ -105,6 +105,37 @@ const calculateTolerances = (params: SimulationParams) => {
     const latShift = params.tol_lat + params.tol_gw;
 
     return { latShift, cantTolDeg, bounce };
+};
+
+const calculateStructureGauge = (params: SimulationParams, w_factor: number): StructureGaugeData | undefined => {
+    if (!params.enableStructureGauge) return undefined;
+
+    // curve_f = 31400 / (Track Radius in metres)
+    // NOTE: params.radius is in metres.
+    const curve_f = 31400 / params.radius;
+
+    // cant_f calculation
+    // cant is in mm
+    const cant_f_inner = params.appliedCant * 3600 / 1137;
+    const cant_f_outer = params.appliedCant * 915 / 1137;
+
+    const H_offset_inner = w_factor + curve_f + cant_f_inner;
+    const H_offset_outer = w_factor + curve_f + cant_f_outer;
+
+    // Map Inner/Outer to Left/Right based on direction
+    const isCW = params.direction === 'cw'; // Clockwise = Right Turn
+    
+    // CW (Right Turn): Right side is Inner, Left side is Outer
+    // CCW (Left Turn): Left side is Inner, Right side is Outer
+    
+    const rightH = isCW ? H_offset_inner : H_offset_outer;
+    const leftH = isCW ? H_offset_outer : H_offset_inner;
+
+    // Coordinate system: Centerline is x=0. Right is +x, Left is -x.
+    return {
+        rightX: rightH,
+        leftX: -leftH
+    };
 };
 
 /**
@@ -332,6 +363,9 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const refThrows = calculateThrows(params.L_outline, params.B_outline, R_mm, isCW, useTrig);
     const studyThrows = calculateThrows(params.L_veh, params.B_veh, R_mm, isCW, useTrig);
 
+    // New: Calculate Structure Gauge
+    const structureGauge = calculateStructureGauge(params, outlineData.w_factor);
+
     const appliedCantRad = params.appliedCant / 1137;
     const appliedCantDeg = degrees(appliedCantRad);
     const cantBiasAngle = isCW ? -appliedCantDeg : appliedCantDeg;
@@ -467,7 +501,8 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         params, rawPointsRight, rawPointsLeft, 
         tols.bounce, pivot, rollStart, rollEnd, 
         latBiasLeft, latBiasRight, studyThrows, 
-        envelopePoly, rotStaticX, rotStaticY, isCW
+        envelopePoly, rotStaticX, rotStaticY, isCW,
+        structureGauge
     );
 
     // 9. Delta Curve
@@ -507,6 +542,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         },
         studyPoints,
         deltaGraphData,
+        structureGauge, // Include in result
         globalStatus,
         calculatedParams: {
             rollUsed: params.roll,
@@ -548,7 +584,8 @@ function calculateStudyPoints(
     latLeft: number, latRight: number,
     throws: { right: number, left: number },
     envelope: Point[], rotStaticX: number[], rotStaticY: number[],
-    isCW: boolean
+    isCW: boolean,
+    structureGauge?: StructureGaugeData
 ): StudyPointResult[] {
     const studyPoints: StudyPointResult[] = [];
     const ys = rawRight.map(p => p.y);
@@ -598,6 +635,9 @@ function calculateStudyPoints(
         const rotStaticXAtY = getXAtY(finalP.y, rotStaticPoly, side);
         const origStaticX = getXAtY(finalP.y, isRight ? rawRight : rawLeft, side);
 
+        // Structure Gauge X at this side
+        const structureX = structureGauge ? (isRight ? structureGauge.rightX : structureGauge.leftX) : null;
+
         const isInside = pointInPolygon(finalP, envelope);
         const dist = minDistanceToEdges(finalP, envelope);
         
@@ -617,6 +657,7 @@ function calculateStudyPoints(
             origStaticX,
             envX: envXAtY,
             staticStudyX: x_base,
+            structureX, // Pass to result
             status
         });
     });

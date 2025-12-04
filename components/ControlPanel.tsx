@@ -217,6 +217,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate, simulatio
           <label className="flex items-center gap-2 cursor-pointer">
               <input
                   type="checkbox"
+                  checked={params.enableStructureGauge}
+                  onChange={(e) => handleBool('enableStructureGauge', e.target.checked)}
+              />
+              <span className="text-xs font-bold text-gray-700">Enable Structure Gauge</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                  type="checkbox"
                   checked={params.considerYRotation}
                   onChange={(e) => handleBool('considerYRotation', e.target.checked)}
               />

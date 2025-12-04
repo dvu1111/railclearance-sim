@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { SimulationParams, ToleranceSet } from '../types';
 import { TRACK_TOLERANCES, OUTLINE_DATA_SETS } from '../constants';
-import { calculateEnvelope } from '../services/railwayPhysics';
+import { calculateEnvelope } from '../services/railwayPhysics.ts';
 
 const DEFAULT_PARAMS: SimulationParams = {
     radius: 100,
@@ -21,6 +21,7 @@ const DEFAULT_PARAMS: SimulationParams = {
     tol_cant: 10, 
     tol_gw: 25,
     w_factor: 1925,
+    enableStructureGauge: false, // Default disabled
     appliedCant: 0,
     roll: 0,
     latPlay: 0,
@@ -73,6 +74,8 @@ export const useSimulation = () => {
                 if (outline) {
                     next.L_outline = outline.L;
                     next.B_outline = outline.B;
+                    // Also update w_factor if it exists in outline data, though it's usually static per model
+                    if (outline.w_factor) next.w_factor = outline.w_factor;
                 }
             }
 
