@@ -190,17 +190,27 @@ const generateRotationalSweep = (
 
     // --- FIX FOR CRASH WHEN Y-ROTATION IS DISABLED ---
     // If Y-Rotation is disabled, the sweep generates degenerate (flat) polygons for horizontal edges.
-    // For small angles this might survive, but for large angles (>7 deg) the internal noise creates invalid geometry.
-    // Since X-only movement is monotonic for typical roll angles, the Union of Start and End caps is sufficient
-    // to describe the envelope without the complex edge sweeps.
+    // We simply union the start and end positions which covers the swept area monotonically in X.
     if (!considerYRotation) {
         const cleanStart = normalizePolygon(pathStart);
         const cleanEnd = normalizePolygon(pathEnd);
-        // Only return if valid
-        if (cleanStart.length < 3) return [cleanEnd];
-        if (cleanEnd.length < 3) return [cleanStart];
         
-        return Clipper.union([cleanStart, cleanEnd], FillRule.NonZero);
+        const startValid = cleanStart.length >= 3;
+        const endValid = cleanEnd.length >= 3;
+
+        if (!startValid && !endValid) return [];
+        if (!startValid) return [cleanEnd];
+        if (!endValid) return [cleanStart];
+
+        const result = Clipper.union([cleanStart, cleanEnd], FillRule.NonZero);
+        
+        // FAILSAFE: If Union fails (returns empty) but inputs are valid, 
+        // return both inputs as separate paths. We will merge them later in calculateEnvelope.
+        if (result.length === 0) {
+            return [cleanStart, cleanEnd]; 
+        }
+        
+        return result;
     }
 
     const parts: Paths64 = [];
@@ -242,16 +252,28 @@ const generateRotationalSweep = (
 };
 
 /**
- * Applies lateral sweep using Minkowski Sum.
+ * Applies lateral sweep using Minkowski Sum or Simple Union.
  */
 const applyLateralSweep = (
     rotationalPaths: Paths64, 
     minLat: number, 
-    maxLat: number
+    maxLat: number,
+    useSimpleSweep: boolean = false
 ): Paths64 => {
     if (Math.abs(maxLat - minLat) < 0.1) {
         // Just translate
         return Clipper.translatePaths(rotationalPaths, minLat * CLIPPER_SCALE, 0);
+    }
+
+    if (useSimpleSweep) {
+        // Optimization: When Y-rotation is disabled (or strictly lateral shift), 
+        // we can simply Union the left-most and right-most positions.
+        // Because the vehicle width (e.g. 3000mm) is significantly larger than lateral shifts (e.g. 100mm),
+        // the two instances overlap heavily, forming a solid envelope without holes.
+        // This avoids the expensive/complex Minkowski Sum operation.
+        const pathMin = Clipper.translatePaths(rotationalPaths, minLat * CLIPPER_SCALE, 0);
+        const pathMax = Clipper.translatePaths(rotationalPaths, maxLat * CLIPPER_SCALE, 0);
+        return Clipper.union([...pathMin, ...pathMax], FillRule.NonZero);
     }
 
     const width = (maxLat - minLat) * CLIPPER_SCALE;
@@ -341,12 +363,20 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const rotPaths = generateRotationalSweep(bouncedShape, rollStart, rollEnd, pivot, params.considerYRotation);
 
     // 5. Generate Full Kinematic Envelope
-    const solution = applyLateralSweep(rotPaths, totalMinLat, totalMaxLat);
+    // Pass !params.considerYRotation as the trigger for simple sweep
+    let solution = applyLateralSweep(rotPaths, totalMinLat, totalMaxLat, !params.considerYRotation);
     
+    // FAILSAFE MERGE: If solution contains disjoint parts (e.g. from fallback), merge them now.
+    // This ensures we have a single envelope even if the intermediate steps produced fragments.
+    if (solution.length > 1) {
+        solution = Clipper.union(solution, FillRule.NonZero);
+    }
+
     // Extract Envelope Polygon
     const envX: number[] = [];
     const envY: number[] = [];
     if (solution.length > 0) {
+        // Pick the largest path if still multiple, but Union above usually fixes it.
         const outerPath = solution.reduce((p, c) => c.length > p.length ? c : p, []);
         outerPath.forEach(pt => {
             const p = fromPoint64(pt);
@@ -381,7 +411,11 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const studyMaxLat = latBiasRight + studyThrows.right;
 
     const studyRotPaths = generateRotationalSweep(bouncedStudyBox, rollStart, rollEnd, pivot, params.considerYRotation);
-    const studySolution = applyLateralSweep(studyRotPaths, studyMinLat, studyMaxLat);
+    let studySolution = applyLateralSweep(studyRotPaths, studyMinLat, studyMaxLat, !params.considerYRotation);
+    
+    if (studySolution.length > 1) {
+        studySolution = Clipper.union(studySolution, FillRule.NonZero);
+    }
 
     const dynamicStudyX: number[] = [];
     const dynamicStudyY: number[] = [];
@@ -407,7 +441,8 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         const rot = getRotatedCoords(p.x, p.y, rollEnd, pivot.x, pivot.y);
         return toPoint64({ x: rot.x, y: params.considerYRotation ? rot.y : p.y });
     });
-    const solutionStatic = Clipper.union([rotPathStaticLeft], [rotPathStaticRight], FillRule.NonZero);
+    // Safely union static ghost shapes
+    let solutionStatic = Clipper.union([normalizePolygon(rotPathStaticLeft)], [normalizePolygon(rotPathStaticRight)], FillRule.NonZero);
     
     const rotStaticX: number[] = [];
     const rotStaticY: number[] = [];
