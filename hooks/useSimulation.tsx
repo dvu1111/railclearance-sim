@@ -30,7 +30,8 @@ const DEFAULT_PARAMS: SimulationParams = {
     considerYRotation: false,
     useTrigCalculation: false, // Default to approximation (standard practice)
     showStudyVehicle: false,
-    showDeltaGraph: false
+    showDeltaGraph: false,
+    showThrowInfo: true
 };
 
 export const useSimulation = () => {

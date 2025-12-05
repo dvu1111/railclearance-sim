@@ -227,14 +227,12 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
         const rollLabel = `Roll: ${calculatedParams.rollUsed.toFixed(2)}° ±${calculatedParams.cantTolUsed.toFixed(2)}°`;
         const latLabel = `Lat: ±${params.latPlay}mm ±${calculatedParams.tolLatShift}mm`;
         const bounceLabel = `Bounce: ${params.bounce}mm +${vertTol}mm`;
-        const cantLabel = `Cant: ${params.appliedCant}mm`;
+        const cantLabel = `Cant: ${params.appliedCant}mm ±${(params.enableTolerances ? params.tol_cant : 0)}mm`;
         const statsLabel = `${rollLabel} | ${latLabel} | ${bounceLabel} | ${cantLabel}`;
 
-        const vehicleDimLabel = `Study Vehicle: L=${params.L_veh}mm B=${params.B_veh}mm W=${params.w}mm`;
-
         const directionText = params.direction === 'cw' 
-            ? `${params.radius} m Clockwise Curve (Right Turn)` 
-            : `${params.radius} m Counter-Clockwise Curve (Left Turn)`;
+            ? `${params.radius}m Clockwise Curve (Right Turn)` 
+            : `${params.radius}m Counter-Clockwise Curve (Left Turn)`;
 
         // Construct Annotation Text for Status Box
         const getStatusColor = (status: string) => {
@@ -248,14 +246,18 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
         const statusColor = getStatusColor(globalStatus);
         
         let statusAnnotation = 
-            `Status: <b style="color:${statusColor}; font-size: 16px;">${globalStatus}</b><br><br>` +
-            `<b>Reference (${params.outlineId})</b><br>` +
-            `End Throw: ${throwValues.ref.ET.toFixed(2)} mm<br>` +
-            `Center Throw: ${throwValues.ref.CT.toFixed(2)} mm`;
+            `Status: <b style="color:${statusColor}; font-size: 16px;">${globalStatus}</b>`;
 
-        if (params.showStudyVehicle) {
+        if (params.showThrowInfo) {
+            statusAnnotation += 
+                `<br><br><b>Reference (${params.outlineId})</b><br>` +
+                `L=${params.L_outline}mm B=${params.B_outline}mm<br>` +
+                `End Throw: ${throwValues.ref.ET.toFixed(2)} mm<br>` +
+                `Center Throw: ${throwValues.ref.CT.toFixed(2)} mm`;
+
             statusAnnotation += 
                 `<br><br><b>Study Vehicle</b><br>` +
+                `L=${params.L_veh}mm B=${params.B_veh}mm W=${params.w}mm<br>` +
                 `End Throw: ${throwValues.study.ET.toFixed(2)} mm<br>` +
                 `Center Throw: ${throwValues.study.CT.toFixed(2)} mm`;
         }
@@ -263,7 +265,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
         const layout: Partial<Layout> = {
             autosize: true,
             title: {
-                text: `<b>Vehicle Outline Simulation - WORK IN PROGRESS, MAY BE INACCURATE</b><br><span style="font-size: 12px;">${directionText}</span><br><span style="font-size: 11px; color: #444;">${vehicleDimLabel}</span><br><span style="font-size: 11px; color: #555;">${statsLabel}</span>`,
+                text: `<b>Vehicle Outline Simulation - WORK IN PROGRESS, MAY BE INACCURATE</b><br><span style="font-size: 12px;">${directionText}</span><br><span style="font-size: 11px; color: #555;">${statsLabel}</span>`,
                 font: { family: 'Arial', size: 18 }
             },
             font: { family: 'Arial, sans-serif' },

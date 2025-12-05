@@ -66,6 +66,7 @@ export interface SimulationParams {
   // Visualization
   showStudyVehicle: boolean; 
   showDeltaGraph: boolean;
+  showThrowInfo: boolean; // New: Toggle throw info box details
 }
 
 export interface StudyPointResult {

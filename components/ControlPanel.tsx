@@ -242,6 +242,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate, simulatio
           <label className="flex items-center gap-2 cursor-pointer">
               <input
                   type="checkbox"
+                  checked={params.showThrowInfo}
+                  onChange={(e) => handleBool('showThrowInfo', e.target.checked)}
+              />
+              <span className="text-xs font-bold text-gray-700">Show Throw Info</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                  type="checkbox"
                   checked={params.useTrigCalculation}
                   onChange={(e) => handleBool('useTrigCalculation', e.target.checked)}
               />
