@@ -743,7 +743,7 @@ function calculateDeltaCurvesIterative(
     const result: DeltaCurveData = { y: [], deltaLeft: [], deltaRight: [] };
 
     // Iterate through height in 10mm steps up to maxY (Vehicle Height)
-    for (let y = minY; y <= maxY; y += 10) {
+    for (let y = minY; y <= maxY; y += 2) {
         
         // Get Reference Envelope Extents
         const envL = getXAtY(y, envelope, 'left');
