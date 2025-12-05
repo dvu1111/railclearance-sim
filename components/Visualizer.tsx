@@ -12,7 +12,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
     
     const mainPlot = useMemo(() => {
         const traces: Data[] = [];
-        const { polygons, studyVehicle, studyPoints, globalStatus, calculatedParams, pivot, structureGauge } = data;
+        const { polygons, studyVehicle, studyPoints, globalStatus, calculatedParams, pivot, structureGauge, throwValues } = data;
 
         // 1. Dynamic Envelope (Filled)
         const envX = [...polygons.left.x, ...[...polygons.right.x].reverse(), polygons.left.x[0]];
@@ -231,6 +231,30 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
 
         const directionText = params.direction === 'cw' ? "Clockwise (Right Turn)" : "Counter-Clockwise (Left Turn)";
 
+        // Construct Annotation Text for Status Box
+        const getStatusColor = (status: string) => {
+            switch(status) {
+                case 'FAIL': return '#dc2626'; // red-600
+                case 'BOUNDARY': return '#eab308'; // yellow-500
+                default: return '#16a34a'; // green-600
+            }
+        };
+
+        const statusColor = getStatusColor(globalStatus);
+        
+        let statusAnnotation = 
+            `Status: <b style="color:${statusColor}; font-size: 16px;">${globalStatus}</b><br><br>` +
+            `<b>Reference (${params.outlineId})</b><br>` +
+            `End Throw: ${throwValues.ref.ET.toFixed(2)} mm<br>` +
+            `Center Throw: ${throwValues.ref.CT.toFixed(2)} mm`;
+
+        if (params.showStudyVehicle) {
+            statusAnnotation += 
+                `<br><br><b>Study Vehicle</b><br>` +
+                `End Throw: ${throwValues.study.ET.toFixed(2)} mm<br>` +
+                `Center Throw: ${throwValues.study.CT.toFixed(2)} mm`;
+        }
+
         const layout: Partial<Layout> = {
             autosize: true,
             title: {
@@ -258,14 +282,23 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
                 zerolinecolor: '#9ca3af'
             },
             hovermode: 'closest',
+            // Info box baked into Plotly layout
             annotations: [
                 {
-                    xref: 'paper', yref: 'paper',
-                    x: 0, y: 1.05,
+                    xref: 'paper',
+                    yref: 'paper',
+                    x: 0.01,
+                    y: 0.99,
                     xanchor: 'left',
-                    text: `Status: <b>${globalStatus}</b>`,
+                    yanchor: 'top',
+                    text: statusAnnotation,
                     showarrow: false,
-                    font: { color: globalStatus === 'FAIL' ? 'red' : (globalStatus === 'BOUNDARY' ? '#eab308' : 'green'), size: 14 }
+                    align: 'left',
+                    bgcolor: 'rgba(255, 255, 255, 0.9)',
+                    bordercolor: '#e5e7eb',
+                    borderwidth: 1,
+                    borderpad: 10,
+                    font: { size: 12, color: '#374151' }
                 }
             ]
         };
@@ -344,7 +377,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
 
     return (
         <div className="w-full h-full flex flex-col gap-2">
-            <div className={`w-full bg-white rounded-lg shadow-lg border border-gray-200 ${params.showDeltaGraph ? 'h-[60%]' : 'h-full'}`}>
+            <div className={`w-full bg-white rounded-lg shadow-lg border border-gray-200 ${params.showDeltaGraph ? 'h-[60%]' : 'h-full'} relative`}>
                 <Plot
                     data={mainPlot.data}
                     layout={mainPlot.layout}

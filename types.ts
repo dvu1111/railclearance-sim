@@ -107,6 +107,11 @@ export interface StructureGaugeData {
   rightX: number;
 }
 
+export interface ThrowData {
+  ET: number;
+  CT: number;
+}
+
 export interface SimulationResult {
   polygons: {
     left: PolyCoords;
@@ -116,6 +121,10 @@ export interface SimulationResult {
   studyPoints: StudyPointResult[];
   deltaGraphData: DeltaCurveData;
   structureGauge?: StructureGaugeData; // New result data
+  throwValues: {
+    ref: ThrowData;
+    study: ThrowData;
+  };
   globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY';
   calculatedParams: {
     rollUsed: number;

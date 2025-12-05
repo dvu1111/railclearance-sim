@@ -651,6 +651,10 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         studyPoints,
         deltaGraphData,
         structureGauge,
+        throwValues: {
+            ref: { ET: refThrows.ET, CT: refThrows.CT },
+            study: { ET: studyThrows.ET, CT: studyThrows.CT }
+        },
         globalStatus,
         calculatedParams: {
             rollUsed: params.roll,
