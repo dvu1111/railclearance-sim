@@ -230,7 +230,11 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
         const cantLabel = `Cant: ${params.appliedCant}mm`;
         const statsLabel = `${rollLabel} | ${latLabel} | ${bounceLabel} | ${cantLabel}`;
 
-        const directionText = params.direction === 'cw' ? "Clockwise (Right Turn)" : "Counter-Clockwise (Left Turn)";
+        const vehicleDimLabel = `Study Vehicle: L=${params.L_veh}mm B=${params.B_veh}mm W=${params.w}mm`;
+
+        const directionText = params.direction === 'cw' 
+            ? `${params.radius} m Clockwise Curve (Right Turn)` 
+            : `${params.radius} m Counter-Clockwise Curve (Left Turn)`;
 
         // Construct Annotation Text for Status Box
         const getStatusColor = (status: string) => {
@@ -259,13 +263,13 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
         const layout: Partial<Layout> = {
             autosize: true,
             title: {
-                text: `<b>Vehicle Outline Simulation - WORK IN PROGRESS, MAY BE INACCURATE</b><br><span style="font-size: 12px;">${directionText}</span><br><span style="font-size: 11px; color: #555;">${statsLabel}</span>`,
+                text: `<b>Vehicle Outline Simulation - WORK IN PROGRESS, MAY BE INACCURATE</b><br><span style="font-size: 12px;">${directionText}</span><br><span style="font-size: 11px; color: #444;">${vehicleDimLabel}</span><br><span style="font-size: 11px; color: #555;">${statsLabel}</span>`,
                 font: { family: 'Arial', size: 18 }
             },
             font: { family: 'Arial, sans-serif' },
             showlegend: true,
             legend: { orientation: 'h', y: -0.1, x: 0.5, xanchor: 'center' },
-            margin: { l: 60, r: 60, b: 60, t: 80 },
+            margin: { l: 60, r: 60, b: 60, t: 95 },
             xaxis: { 
                 title: { text: 'Lateral Position (mm)' }, 
                 zeroline: true, 
