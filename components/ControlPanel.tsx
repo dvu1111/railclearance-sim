@@ -130,14 +130,15 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate, simulatio
           <h3 className="font-bold text-gray-800 mb-2 border-b pb-1">Dynamics</h3>
           <div className="grid grid-cols-3 gap-2 mb-2">
               {[
-                  { l: 'Roll (°)', k: 'roll' },
-                  { l: 'Lat (mm)', k: 'latPlay' },
-                  { l: 'Bounce', k: 'bounce' }
+                  { l: 'Roll (°)', k: 'roll', step: 0.1 },
+                  { l: 'Lat (mm)', k: 'latPlay', step: 1 },
+                  { l: 'Bounce', k: 'bounce', step: 1 }
               ].map(f => (
                   <div key={f.k}>
                       <label className="block text-xs font-bold text-center text-gray-500">{f.l}</label>
                       <input 
                         type="number" 
+                        step={f.step}
                         value={params[f.k as keyof SimulationParams] as number}
                         onChange={(e) => handleNum(f.k as keyof SimulationParams, e.target.value)}
                         className="w-full border rounded px-1 text-right"
