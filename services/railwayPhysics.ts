@@ -5,8 +5,9 @@ import { Clipper, Path64, Point64, FillRule, Paths64 } from "../lib/clipper2-ts/
 // --- Constants & Helpers ---
 const CLIPPER_SCALE = 1000;
 const PIVOT_DEFAULT = { x: 0, y: 1100 };
-const TRACK_CENTER = { x: 0, y: 0 };
 const TOLERANCE = 0.1; // 0.1 mm tolerance for boundary checks
+const HALF_GAUGE = 533.5;
+
 
 function radians(deg: number) { return deg * Math.PI / 180; }
 function degrees(rad: number) { return rad * 180 / Math.PI; }
@@ -467,13 +468,19 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     // This creates a "Widened Body" that represents all possible lateral positions.
     const latSweptPaths = applyLateralSweep(rollBodyPaths, totalMinLat, totalMaxLat, checkRotation);
 
+
+    // CW (Right Turn) -> Right Rail is Inner/Low -> Pivot is +X
+    // CCW (Left Turn) -> Left Rail is Inner/Low -> Pivot is -X
+    const cantPivotX = isCW ? HALF_GAUGE : -HALF_GAUGE;
+    const cantPivot = { x: cantPivotX, y: 0 };
+
     // 6. Apply Cant Rotation (Sweeping the Widened Body around Track Center)
     // Since the body is now widened, the Cant rotation will correctly generate the arcing envelope at the corners.
     let solution = applyRotationalSweepToPaths(
         latSweptPaths, 
         cantMin, 
         cantMax, 
-        TRACK_CENTER, 
+        cantPivot, 
         params.considerYRotation
     );
     
@@ -526,7 +533,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         studyLatPaths,
         cantMin,
         cantMax,
-        TRACK_CENTER,
+        cantPivot,
         params.considerYRotation
     );
     
