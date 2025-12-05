@@ -789,6 +789,9 @@ function calculateStudyPoints(
     
     const h_bounced = params.h + ((params.h - minY) / vHeight) * bounce; 
 
+    // Determine cant pivot X based on direction
+    const cantPivotX = isCW ? HALF_GAUGE : -HALF_GAUGE;
+
     (['right', 'left'] as const).forEach(side => {
         const isRight = side === 'right';
         const xMult = isRight ? 1 : -1;
@@ -805,14 +808,29 @@ function calculateStudyPoints(
         rolls.forEach(r => {
             // 1. Roll around Pivot
             const rolled = getRotatedCoords(x_base, h_bounced, r, pivot.x, pivot.y);
-            // 2. Cant around Track Center (0,0)
-            const canted = getRotatedCoords(rolled.x, rolled.y, cant, 0, 0);
             
-            const y = params.considerYRotation ? canted.y : h_bounced;
+            // Handle !considerYRotation case by resetting Y to pre-roll bounce height
+            // But we must do this logic here because `generateRotationalSweep` handles it internally for envelope.
+            const rolledY = params.considerYRotation ? rolled.y : h_bounced;
+
             lats.forEach(lat => {
+                // 2. Apply Lateral Shift (Translate BEFORE Cant)
+                // In Envelope logic: Roll -> Lateral Sweep -> Cant
+                // The lateral displacement (Throw + Play) effectively widens the body
+                // *before* it is rotated by the track cant.
+                
+                const shiftedX = rolled.x + lat + geomThrowShift;
+                const shiftedY = rolledY; // Y does not change during pure lateral shift
+
+                // 3. Cant around Rail Head (cantPivotX, 0)
+                const canted = getRotatedCoords(shiftedX, shiftedY, cant, cantPivotX, 0);
+                
+                // Final Y adjustment if rotation ignored
+                const finalY = params.considerYRotation ? canted.y : shiftedY;
+
                 testPoints.push({
-                    x: canted.x + lat + geomThrowShift,
-                    y: y
+                    x: canted.x,
+                    y: finalY
                 });
             });
         });
