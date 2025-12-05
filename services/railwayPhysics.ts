@@ -5,6 +5,7 @@ import { Clipper, Path64, Point64, FillRule, Paths64 } from "../lib/clipper2-ts/
 // --- Constants & Helpers ---
 const CLIPPER_SCALE = 1000;
 const PIVOT_DEFAULT = { x: 0, y: 1100 };
+const TRACK_CENTER = { x: 0, y: 0 };
 const TOLERANCE = 0.1; // 0.1 mm tolerance for boundary checks
 
 function radians(deg: number) { return deg * Math.PI / 180; }
@@ -28,6 +29,36 @@ function getRotatedCoords(x: number, y: number, angleDeg: number, cx: number, cy
         x: cx + dx * c - dy * s,
         y: cy + dx * s + dy * c
     };
+}
+
+/**
+ * Rotates an entire Clipper Path (or Paths) around a pivot point.
+ * @param considerYRotation If false, Y coordinates will not be rotated (keeps original Y).
+ */
+function rotatePaths64(paths: Paths64, angleDeg: number, pivot: Point, considerYRotation: boolean = true): Paths64 {
+    if (Math.abs(angleDeg) < 0.001) return paths;
+    
+    const rad = radians(angleDeg);
+    const c = Math.cos(rad);
+    const s = Math.sin(rad);
+    const px = pivot.x * CLIPPER_SCALE;
+    const py = pivot.y * CLIPPER_SCALE;
+
+    const result: Paths64 = [];
+    
+    for (const path of paths) {
+        const newPath: Path64 = [];
+        for (const pt of path) {
+            const dx = pt.x - px;
+            const dy = pt.y - py;
+            newPath.push({
+                x: Math.round(px + dx * c - dy * s),
+                y: considerYRotation ? Math.round(py + dx * s + dy * c) : pt.y
+            });
+        }
+        result.push(newPath);
+    }
+    return result;
 }
 
 /**
@@ -283,6 +314,26 @@ const generateRotationalSweep = (
 };
 
 /**
+ * Helper to apply rotational sweep to a collection of Clipper Paths.
+ * Used for applying Cant sweep to the already-rolled body.
+ */
+const applyRotationalSweepToPaths = (
+    paths: Paths64,
+    startAngle: number,
+    endAngle: number,
+    pivot: Point,
+    considerYRotation: boolean
+): Paths64 => {
+    const sweptResult: Paths64 = [];
+    for (const path of paths) {
+        const poly = path.map(fromPoint64); // Convert back to Point for the sweep function
+        const swept = generateRotationalSweep(poly, startAngle, endAngle, pivot, considerYRotation);
+        sweptResult.push(...swept);
+    }
+    return Clipper.union(sweptResult, FillRule.NonZero);
+};
+
+/**
  * Applies lateral sweep using Minkowski Sum or Simple Union.
  */
 const applyLateralSweep = (
@@ -363,19 +414,26 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const refThrows = calculateThrows(params.L_outline, params.B_outline, R_mm, isCW, useTrig);
     const studyThrows = calculateThrows(params.L_veh, params.B_veh, R_mm, isCW, useTrig);
 
-    // New: Calculate Structure Gauge
+    // Structure Gauge
     const structureGauge = calculateStructureGauge(params, outlineData.w_factor);
 
+    // --- DECOUPLED ROTATION LOGIC ---
+    
+    // Cant (Track Rotation)
+    // Rotates around Track Center (0,0)
+    // Tolerances on cant (Twist) effectively widen the range of track angles.
     const appliedCantRad = params.appliedCant / 1137;
     const appliedCantDeg = degrees(appliedCantRad);
-    const cantBiasAngle = isCW ? -appliedCantDeg : appliedCantDeg;
-
-    // Roll Angles
-    const angle1 = Math.abs(params.roll) + cantBiasAngle + tols.cantTolDeg;
-    const angle2 = -Math.abs(params.roll) + cantBiasAngle - tols.cantTolDeg;
+    const cantDir = isCW ? -1 : 1; 
+    const nominalCant = appliedCantDeg * cantDir;
     
-    const rollStart = Math.min(angle1, angle2);
-    const rollEnd = Math.max(angle1, angle2);
+    const cantMin = nominalCant - tols.cantTolDeg;
+    const cantMax = nominalCant + tols.cantTolDeg;
+
+    // Roll (Dynamic Body Rotation)
+    // Rotates around Roll Center (0, h_roll)
+    const rollStart = -Math.abs(params.roll);
+    const rollEnd = Math.abs(params.roll);
 
     // Lateral Biases
     const latBiasLeft = -params.latPlay - tols.latShift;
@@ -395,15 +453,24 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     });
 
     let checkRotation: boolean = (params.considerYRotation) ? ((Math.abs(rollStart) > 0 || Math.abs(rollEnd) > 0) ? false : true) : true;
-    // 4. Generate Rotational Envelope (CSG Method)
-    const rotPaths = generateRotationalSweep(bouncedShape, rollStart, rollEnd, pivot, !checkRotation);
+    
+    // 4. Generate Body Roll Envelope (Sweeping around Roll Center)
+    const rollBodyPaths = generateRotationalSweep(bouncedShape, rollStart, rollEnd, pivot, !checkRotation);
 
-    // 5. Generate Full Kinematic Envelope
-    // Pass !params.considerYRotation as the trigger for simple sweep
+    // 5. Apply Cant Rotation (Sweeping entire body around Track Center)
+    // We sweep from cantMin to cantMax to ensure arcing path (swept corners) is included.
+    const rotPaths = applyRotationalSweepToPaths(
+        rollBodyPaths, 
+        cantMin, 
+        cantMax, 
+        TRACK_CENTER, 
+        params.considerYRotation
+    );
+
+    // 6. Generate Full Kinematic Envelope (Lateral Sweep)
     let solution = applyLateralSweep(rotPaths, totalMinLat, totalMaxLat, checkRotation);
     
-    // FAILSAFE MERGE: If solution contains disjoint parts (e.g. from fallback), merge them now.
-    // This ensures we have a single envelope even if the intermediate steps produced fragments.
+    // FAILSAFE MERGE
     if (solution.length > 1) {
         solution = Clipper.union(solution, FillRule.NonZero);
     }
@@ -412,7 +479,6 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const envX: number[] = [];
     const envY: number[] = [];
     if (solution.length > 0) {
-        // Pick the largest path if still multiple, but Union above usually fixes it.
         const outerPath = solution.reduce((p, c) => c.length > p.length ? c : p, []);
         outerPath.forEach(pt => {
             const p = fromPoint64(pt);
@@ -425,7 +491,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         }
     }
 
-    // 6. Study Vehicle Visualization
+    // 7. Study Vehicle Visualization
     const halfW = params.w / 2;
     const studyBox: Point[] = [
         { x: -halfW, y: 0 }, { x: halfW, y: 0 },
@@ -446,7 +512,16 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const studyMinLat = latBiasLeft + studyThrows.left;
     const studyMaxLat = latBiasRight + studyThrows.right;
 
-    const studyRotPaths = generateRotationalSweep(bouncedStudyBox, rollStart, rollEnd, pivot, !checkRotation);
+    // Study Vehicle: Roll Sweep -> Cant Sweep -> Lateral Sweep
+    const studyRollPaths = generateRotationalSweep(bouncedStudyBox, rollStart, rollEnd, pivot, !checkRotation);
+    const studyRotPaths = applyRotationalSweepToPaths(
+        studyRollPaths,
+        cantMin,
+        cantMax,
+        TRACK_CENTER,
+        params.considerYRotation
+    );
+
     let studySolution = applyLateralSweep(studyRotPaths, studyMinLat, studyMaxLat, checkRotation);
     
     if (studySolution.length > 1) {
@@ -468,16 +543,23 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         }
     }
 
-    // 7. Static & Ghost Visualization
+    // 8. Static & Ghost Visualization (Rotated by nominal Roll and Cant)
     const rotPathStaticLeft = bouncedShape.map(p => {
-        const rot = getRotatedCoords(p.x, p.y, rollStart, pivot.x, pivot.y);
-        return toPoint64({ x: rot.x, y: params.considerYRotation ? rot.y : p.y });
+        // Roll around pivot
+        const rolled = getRotatedCoords(p.x, p.y, rollStart, pivot.x, pivot.y);
+        // Cant around 0,0
+        const canted = getRotatedCoords(rolled.x, rolled.y, nominalCant, 0, 0);
+        return toPoint64({ x: canted.x, y: params.considerYRotation ? canted.y : p.y });
     });
+    
     const rotPathStaticRight = bouncedShape.map(p => {
-        const rot = getRotatedCoords(p.x, p.y, rollEnd, pivot.x, pivot.y);
-        return toPoint64({ x: rot.x, y: params.considerYRotation ? rot.y : p.y });
+        // Roll around pivot
+        const rolled = getRotatedCoords(p.x, p.y, rollEnd, pivot.x, pivot.y);
+        // Cant around 0,0
+        const canted = getRotatedCoords(rolled.x, rolled.y, nominalCant, 0, 0);
+        return toPoint64({ x: canted.x, y: params.considerYRotation ? canted.y : p.y });
     });
-    // Safely union static ghost shapes
+
     let solutionStatic = Clipper.union([normalizePolygon(rotPathStaticLeft)], [normalizePolygon(rotPathStaticRight)], FillRule.NonZero);
     
     const rotStaticX: number[] = [];
@@ -495,22 +577,26 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         }
     }
 
-    // 8. Study Points
+    // 9. Study Points
     const envelopePoly: Point[] = envX.map((x, i) => ({ x, y: envY[i] }));
     const studyPoints = calculateStudyPoints(
         params, rawPointsRight, rawPointsLeft, 
-        tols.bounce, pivot, rollStart, rollEnd, 
+        tols.bounce, pivot, 
+        rollStart, rollEnd, nominalCant, // Pass decoupled angles
         latBiasLeft, latBiasRight, studyThrows, 
         envelopePoly, rotStaticX, rotStaticY, isCW,
         structureGauge
     );
 
 
-    //  9. Delta Curve (Clearance Graph)
+    // 10. Delta Curve (Clearance Graph)
     const ys = rawPointsRight.map(p => p.y);
     const maxY = Math.max(...ys) + tols.bounce + 100;
 
-    // Refactored iterative approach for Study Vehicle (removing WholeBox Clipper op)
+    // Use worst case cant for delta curves? 
+    // We'll calculate for nominal cant to keep graph clean, or check boundaries.
+    // Let's pass the range to be safe.
+    
     const deltaGraphData = calculateDeltaCurvesIterative(
         0, 
         maxY, 
@@ -518,13 +604,14 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         params.w, params.h,
         pivot,
         rollStart, rollEnd,
+        cantMin, cantMax,
         tols.bounce, params.bounceYThreshold,
         latBiasLeft, latBiasRight,
         studyThrows,
         params.considerYRotation
     );
 
-    // 10. Status
+    // 11. Status
     let globalStatus: 'PASS' | 'FAIL' | 'BOUNDARY' = 'PASS';
     if (studyPoints.length > 0) {
         if (studyPoints.some(sp => sp.status === 'FAIL')) globalStatus = 'FAIL';
@@ -550,7 +637,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         },
         studyPoints,
         deltaGraphData,
-        structureGauge, // Include in result
+        structureGauge,
         globalStatus,
         calculatedParams: {
             rollUsed: params.roll,
@@ -565,18 +652,19 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 /**
  * Analytically calculates the dynamic bounds of the study vehicle at a specific height `y`.
  * Checks both rotation extremes and the corner arcs.
+ * Supports Decoupled Roll (around pivot) and Cant (around 0,0).
  */
 function getDynamicBoundsAtY(
     y: number,
     w: number, h: number,
     pivot: Point,
     rollStart: number, rollEnd: number,
+    cant: number, // Fixed cant for this check
     bounce: number, bounceYThreshold: number,
     considerYRotation: boolean
 ): { minX: number | null, maxX: number | null } {
     
     // Define the 4 corners of the Study Vehicle in Static Frame (x, y)
-    // Apply bounce to the top corners if applicable
     const halfW = w / 2;
     const topY = h > bounceYThreshold ? h + bounce : h;
     const corners: Point[] = [
@@ -590,13 +678,18 @@ function getDynamicBoundsAtY(
     let maxX = Number.NEGATIVE_INFINITY;
     let found = false;
 
-    // Helper to process a rotated polygon at a specific angle
-    const checkPolygonAtAngle = (angle: number) => {
-        const poly = corners.map(p => {
-            const r = getRotatedCoords(p.x, p.y, angle, pivot.x, pivot.y);
-            return { x: r.x, y: considerYRotation ? r.y : p.y };
-        });
+    // Helper: Apply Body Roll then Cant
+    const transformPoint = (p: Point, roll: number) => {
+        // 1. Roll around Pivot (Body)
+        const rolled = getRotatedCoords(p.x, p.y, roll, pivot.x, pivot.y);
+        // 2. Cant around 0,0 (Track)
+        const canted = getRotatedCoords(rolled.x, rolled.y, cant, 0, 0);
+        return { x: canted.x, y: considerYRotation ? canted.y : p.y }; // Use original Y if Y-rot disabled? No, Cant moves Y.
+    };
 
+    // Helper to process a rotated polygon at a specific roll angle
+    const checkPolygonAtRoll = (roll: number) => {
+        const poly = corners.map(p => transformPoint(p, roll));
         // Intersect polygon edges with line Y = y
         const xs = getXsAtY(y, poly);
         if (xs.length > 0) {
@@ -606,56 +699,57 @@ function getDynamicBoundsAtY(
         }
     };
 
-    // 1. Check Limits (Start/End Rotation)
-    checkPolygonAtAngle(rollStart);
-    checkPolygonAtAngle(rollEnd);
+    // 1. Check Limits (Start/End Roll)
+    checkPolygonAtRoll(rollStart);
+    checkPolygonAtRoll(rollEnd);
 
     // 2. Check Corner Arcs (The "Round" parts of the sweep)
-    // If a corner rotates through the target height y, its x on the circle is an extremum.
-    // Equation of circle for corner C: (x - px)^2 + (y - py)^2 = R^2
-    // x = px +/- sqrt(R^2 - (y - py)^2)
+    // The corner P rotates around pivot `pivot` by `roll`.
+    // Then the whole system rotates around `0,0` by `cant`.
+    // Effectively, the Arc Center `pivot` is rotated to `pivot'` by `cant`.
+    // The Arc Radius is unchanged.
+    // The Arc Angles are `rollStart + cant` to `rollEnd + cant`? 
+    // No, the start angle of the point relative to global frame shifts by `cant`.
+    
     if (considerYRotation && Math.abs(rollStart - rollEnd) > 0.001) {
+        // Effective Pivot for the arc (Rotated by Cant)
+        const effectivePivot = getRotatedCoords(pivot.x, pivot.y, cant, 0, 0);
+
         corners.forEach(p => {
+            // Radius from ORIGINAL pivot (distance doesn't change with rigid rotation)
             const dx = p.x - pivot.x;
             const dy = p.y - pivot.y;
             const R2 = dx*dx + dy*dy;
-            const dy_prime = y - pivot.y;
             
-            // Check if line Y=y intersects the circle of rotation
+            // Check intersection with line Y=y using Effective Pivot
+            const dy_prime = y - effectivePivot.y;
+            
             if (R2 >= dy_prime * dy_prime) {
                 const x_offset = Math.sqrt(R2 - dy_prime * dy_prime);
-                const x1 = pivot.x - x_offset;
-                const x2 = pivot.x + x_offset;
+                const x1 = effectivePivot.x - x_offset;
+                const x2 = effectivePivot.x + x_offset;
 
-                // For each intersection, check if it lies within the sweep angle range
                 [x1, x2].forEach(x => {
-                    // Calculate angle of this point relative to pivot
-                    // atan2(y - py, x - px)
-                    const angleRad = Math.atan2(dy_prime, x - pivot.x);
-                    // Adjust to be relative to the original point's angle?
-                    // No, we need the rotation angle required to bring 'p' to (x,y).
-                    // The corner 'p' starts at static angle 'startAngle'.
-                    // Rotated point P' is at 'startAngle + rotation'.
-                    // So rotation = angle(P') - angle(P).
+                    // Angle of intersection point relative to Effective Pivot
+                    const angleRad = Math.atan2(dy_prime, x - effectivePivot.x);
                     
+                    // Original angle of point relative to Original Pivot
+                    // PLUS the Cant Rotation (the whole coordinate system rotated)
                     const originalAngle = Math.atan2(dy, dx);
-                    let rotationDeg = degrees(angleRad - originalAngle);
                     
-                    // Normalize rotation to be close to the range [rollStart, rollEnd]
-                    // This handles wrap-around if necessary, but roll angles are usually small (-10 to 10).
-                    // Simple clamp check is usually enough for small angles.
+                    // We need to find the ROLL angle that places the point here.
+                    // Point_Global_Angle = Original_Angle + Roll + Cant
+                    // Roll = Point_Global_Angle - Original_Angle - Cant
                     
-                    // Ensure rotationDeg is in the same "period" as rollStart/End
+                    let requiredRollDeg = degrees(angleRad) - degrees(originalAngle) - cant;
+                    
+                    // Normalize roll to range
                     const center = (rollStart + rollEnd) / 2;
-                    while (rotationDeg - center > 180) rotationDeg -= 360;
-                    while (rotationDeg - center < -180) rotationDeg += 360;
+                    while (requiredRollDeg - center > 180) requiredRollDeg -= 360;
+                    while (requiredRollDeg - center < -180) requiredRollDeg += 360;
 
-                    // Check if this rotation is within the sweep
-                    // Allow small epsilon for floating point
-                    const minR = Math.min(rollStart, rollEnd);
-                    const maxR = Math.max(rollStart, rollEnd);
-                    
-                    if (rotationDeg >= minR - 0.01 && rotationDeg <= maxR + 0.01) {
+                    if (requiredRollDeg >= Math.min(rollStart, rollEnd) - 0.01 && 
+                        requiredRollDeg <= Math.max(rollStart, rollEnd) + 0.01) {
                         minX = Math.min(minX, x);
                         maxX = Math.max(maxX, x);
                         found = true;
@@ -697,10 +791,10 @@ function getXsAtY(targetY: number, poly: Point[]): number[] {
 function calculateDeltaCurvesIterative(
     minY: number, maxY: number, 
     envelope: Point[],
-    // Study Params
     vehW: number, vehH: number,
     pivot: Point,
     rollStart: number, rollEnd: number,
+    cantMin: number, cantMax: number,
     bounce: number, bounceYThreshold: number,
     latBiasLeft: number, latBiasRight: number,
     studyThrows: { left: number, right: number },
@@ -711,40 +805,33 @@ function calculateDeltaCurvesIterative(
     // Iterate through height in 10mm steps
     for (let y = minY; y <= maxY; y += 10) {
         
-        // 1. Get Reference Envelope X (The Limit)
         const envL = getXAtY(y, envelope, 'left');
         const envR = getXAtY(y, envelope, 'right');
 
-        // 2. Calculate Dynamic Study Vehicle Bounds individually for this Y
-        const { minX, maxX } = getDynamicBoundsAtY(
+        // Check bounds for BOTH Min and Max cant to be safe/conservative
+        const bounds1 = getDynamicBoundsAtY(
             y, vehW, vehH, pivot, 
-            rollStart, rollEnd, 
-            bounce, bounceYThreshold, 
-            considerYRotation
+            rollStart, rollEnd, cantMin, 
+            bounce, bounceYThreshold, considerYRotation
+        );
+        const bounds2 = getDynamicBoundsAtY(
+            y, vehW, vehH, pivot, 
+            rollStart, rollEnd, cantMax, 
+            bounce, bounceYThreshold, considerYRotation
         );
 
-        // If the study vehicle does not exist at this height (e.g. above the roof), 
-        // we skip this point to prevent the graph from "shooting up" (defaulting to 0 width).
+        let minX = (bounds1.minX !== null && bounds2.minX !== null) ? Math.min(bounds1.minX, bounds2.minX) : (bounds1.minX ?? bounds2.minX);
+        let maxX = (bounds1.maxX !== null && bounds2.maxX !== null) ? Math.max(bounds1.maxX, bounds2.maxX) : (bounds1.maxX ?? bounds2.maxX);
+
         if (minX === null || maxX === null) continue;
 
-        // Apply lateral shifts (Throws + Play + Tolerances)
-        // Left Limit = minX_rotated + ShiftLeft
-        // Right Limit = maxX_rotated + ShiftRight
-        
         const studyL = minX + latBiasLeft + studyThrows.left;
         const studyR = maxX + latBiasRight + studyThrows.right;
 
         if (envL !== null && envR !== null) {
             result.y.push(y);
-
-            // 3. Calculate Clearance Distance
-            // Distance = Envelope Boundary - Study Vehicle Boundary
-            // Positive value = CLEARANCE (Safe)
-            // Negative value = FOULING (Collision)
-        
             const distLeft = Math.abs(envL) - Math.abs(studyL);
             const distRight = Math.abs(envR) - Math.abs(studyR);
-
             result.deltaLeft.push(distLeft);
             result.deltaRight.push(distRight);
         }
@@ -757,6 +844,7 @@ function calculateStudyPoints(
     rawRight: Point[], rawLeft: Point[], 
     bounce: number, pivot: Point,
     rollMin: number, rollMax: number,
+    cant: number, // Nominal cant
     latLeft: number, latRight: number,
     throws: { right: number, left: number },
     envelope: Point[], rotStaticX: number[], rotStaticY: number[],
@@ -769,7 +857,6 @@ function calculateStudyPoints(
     const maxY = Math.max(...ys);
     const vHeight = (maxY - minY) || 1;
     
-    // Scale bounce based on height (simple linear interpolation for suspension effect)
     const h_bounced = params.h + ((params.h - minY) / vHeight) * bounce; 
 
     (['right', 'left'] as const).forEach(side => {
@@ -777,7 +864,6 @@ function calculateStudyPoints(
         const xMult = isRight ? 1 : -1;
         const x_base = params.w / 2 * xMult;
         
-        // Determine Throw Label
         const throwType = (isCW === isRight) ? 'CT' : 'ET'; 
         const geomThrowShift = isRight ? throws.right : throws.left;
 
@@ -787,11 +873,15 @@ function calculateStudyPoints(
         const lats = [latLeft, latRight];
 
         rolls.forEach(r => {
-            const rotated = getRotatedCoords(x_base, h_bounced, r, pivot.x, pivot.y);
-            const y = params.considerYRotation ? rotated.y : h_bounced;
+            // 1. Roll around Pivot
+            const rolled = getRotatedCoords(x_base, h_bounced, r, pivot.x, pivot.y);
+            // 2. Cant around Track Center (0,0)
+            const canted = getRotatedCoords(rolled.x, rolled.y, cant, 0, 0);
+            
+            const y = params.considerYRotation ? canted.y : h_bounced;
             lats.forEach(lat => {
                 testPoints.push({
-                    x: rotated.x + lat + geomThrowShift,
+                    x: canted.x + lat + geomThrowShift,
                     y: y
                 });
             });
@@ -811,7 +901,6 @@ function calculateStudyPoints(
         const rotStaticXAtY = getXAtY(finalP.y, rotStaticPoly, side);
         const origStaticX = getXAtY(finalP.y, isRight ? rawRight : rawLeft, side);
 
-        // Structure Gauge X at this side
         const structureX = structureGauge ? (isRight ? structureGauge.rightX : structureGauge.leftX) : null;
 
         const isInside = pointInPolygon(finalP, envelope);
@@ -833,7 +922,7 @@ function calculateStudyPoints(
             origStaticX,
             envX: envXAtY,
             staticStudyX: x_base,
-            structureX, // Pass to result
+            structureX, 
             status
         });
     });
