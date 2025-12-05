@@ -227,7 +227,8 @@ const Visualizer: React.FC<VisualizerProps> = ({ data, params }) => {
         const rollLabel = `Roll: ${calculatedParams.rollUsed.toFixed(2)}° ±${calculatedParams.cantTolUsed.toFixed(2)}°`;
         const latLabel = `Lat: ±${params.latPlay}mm ±${calculatedParams.tolLatShift}mm`;
         const bounceLabel = `Bounce: ${params.bounce}mm +${vertTol}mm`;
-        const statsLabel = `${rollLabel} | ${latLabel} | ${bounceLabel}`;
+        const cantLabel = `Cant: ${params.appliedCant}mm`;
+        const statsLabel = `${rollLabel} | ${latLabel} | ${bounceLabel} | ${cantLabel}`;
 
         const directionText = params.direction === 'cw' ? "Clockwise (Right Turn)" : "Counter-Clockwise (Left Turn)";
 
