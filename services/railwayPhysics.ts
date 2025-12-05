@@ -208,7 +208,7 @@ const createSweptEdge = (
     p2: Point, 
     pivot: Point, 
     startAngle: number, 
-    endAngle: number,
+    endAngle: number, 
     steps: number,
     considerYRotation: boolean
 ): Path64 => {
@@ -603,25 +603,15 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
 
     // 10. Delta Curve (Clearance Graph)
-    const ys = rawPointsRight.map(p => p.y);
-    const maxY = Math.max(...ys) + tols.bounce + 100;
+    // Refactored to use the computed polygons instead of re-simulating physics
+    const studyPoly: Point[] = dynamicStudyX.map((x, i) => ({ x, y: dynamicStudyY[i] }));
+    const maxCalcY = params.h + tols.bounce;
 
-    // Use worst case cant for delta curves? 
-    // We'll calculate for nominal cant to keep graph clean, or check boundaries.
-    // Let's pass the range to be safe.
-    
     const deltaGraphData = calculateDeltaCurvesIterative(
         0, 
-        maxY, 
+        maxCalcY, 
         envelopePoly,
-        params.w, params.h,
-        pivot,
-        rollStart, rollEnd,
-        cantMin, cantMax,
-        tols.bounce, params.bounceYThreshold,
-        latBiasLeft, latBiasRight,
-        studyThrows,
-        params.considerYRotation
+        studyPoly
     );
 
     // 11. Status
@@ -667,120 +657,6 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 }
 
 /**
- * Analytically calculates the dynamic bounds of the study vehicle at a specific height `y`.
- * Checks both rotation extremes and the corner arcs.
- * Supports Decoupled Roll (around pivot) and Cant (around 0,0).
- */
-function getDynamicBoundsAtY(
-    y: number,
-    w: number, h: number,
-    pivot: Point,
-    rollStart: number, rollEnd: number,
-    cant: number, // Fixed cant for this check
-    bounce: number, bounceYThreshold: number,
-    considerYRotation: boolean
-): { minX: number | null, maxX: number | null } {
-    
-    // Define the 4 corners of the Study Vehicle in Static Frame (x, y)
-    const halfW = w / 2;
-    const topY = h > bounceYThreshold ? h + bounce : h;
-    const corners: Point[] = [
-        { x: -halfW, y: 0 },    // BL
-        { x: halfW, y: 0 },     // BR
-        { x: halfW, y: topY },  // TR
-        { x: -halfW, y: topY }  // TL
-    ];
-
-    let minX = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let found = false;
-
-    // Helper: Apply Body Roll then Cant
-    const transformPoint = (p: Point, roll: number) => {
-        // 1. Roll around Pivot (Body)
-        const rolled = getRotatedCoords(p.x, p.y, roll, pivot.x, pivot.y);
-        // 2. Cant around 0,0 (Track)
-        const canted = getRotatedCoords(rolled.x, rolled.y, cant, 0, 0);
-        return { x: canted.x, y: considerYRotation ? canted.y : p.y }; // Use original Y if Y-rot disabled? No, Cant moves Y.
-    };
-
-    // Helper to process a rotated polygon at a specific roll angle
-    const checkPolygonAtRoll = (roll: number) => {
-        const poly = corners.map(p => transformPoint(p, roll));
-        // Intersect polygon edges with line Y = y
-        const xs = getXsAtY(y, poly);
-        if (xs.length > 0) {
-            minX = Math.min(minX, ...xs);
-            maxX = Math.max(maxX, ...xs);
-            found = true;
-        }
-    };
-
-    // 1. Check Limits (Start/End Roll)
-    checkPolygonAtRoll(rollStart);
-    checkPolygonAtRoll(rollEnd);
-
-    // 2. Check Corner Arcs (The "Round" parts of the sweep)
-    // The corner P rotates around pivot `pivot` by `roll`.
-    // Then the whole system rotates around `0,0` by `cant`.
-    // Effectively, the Arc Center `pivot` is rotated to `pivot'` by `cant`.
-    // The Arc Radius is unchanged.
-    // The Arc Angles are `rollStart + cant` to `rollEnd + cant`? 
-    // No, the start angle of the point relative to global frame shifts by `cant`.
-    
-    if (considerYRotation && Math.abs(rollStart - rollEnd) > 0.001) {
-        // Effective Pivot for the arc (Rotated by Cant)
-        const effectivePivot = getRotatedCoords(pivot.x, pivot.y, cant, 0, 0);
-
-        corners.forEach(p => {
-            // Radius from ORIGINAL pivot (distance doesn't change with rigid rotation)
-            const dx = p.x - pivot.x;
-            const dy = p.y - pivot.y;
-            const R2 = dx*dx + dy*dy;
-            
-            // Check intersection with line Y=y using Effective Pivot
-            const dy_prime = y - effectivePivot.y;
-            
-            if (R2 >= dy_prime * dy_prime) {
-                const x_offset = Math.sqrt(R2 - dy_prime * dy_prime);
-                const x1 = effectivePivot.x - x_offset;
-                const x2 = effectivePivot.x + x_offset;
-
-                [x1, x2].forEach(x => {
-                    // Angle of intersection point relative to Effective Pivot
-                    const angleRad = Math.atan2(dy_prime, x - effectivePivot.x);
-                    
-                    // Original angle of point relative to Original Pivot
-                    // PLUS the Cant Rotation (the whole coordinate system rotated)
-                    const originalAngle = Math.atan2(dy, dx);
-                    
-                    // We need to find the ROLL angle that places the point here.
-                    // Point_Global_Angle = Original_Angle + Roll + Cant
-                    // Roll = Point_Global_Angle - Original_Angle - Cant
-                    
-                    let requiredRollDeg = degrees(angleRad) - degrees(originalAngle) - cant;
-                    
-                    // Normalize roll to range
-                    const center = (rollStart + rollEnd) / 2;
-                    while (requiredRollDeg - center > 180) requiredRollDeg -= 360;
-                    while (requiredRollDeg - center < -180) requiredRollDeg += 360;
-
-                    if (requiredRollDeg >= Math.min(rollStart, rollEnd) - 0.01 && 
-                        requiredRollDeg <= Math.max(rollStart, rollEnd) + 0.01) {
-                        minX = Math.min(minX, x);
-                        maxX = Math.max(maxX, x);
-                        found = true;
-                    }
-                });
-            }
-        });
-    }
-
-    if (!found) return { minX: null, maxX: null };
-    return { minX, maxX };
-}
-
-/**
  * Gets all X intersections of a horizontal line Y=targetY with a polygon.
  */
 function getXsAtY(targetY: number, poly: Point[]): number[] {
@@ -805,50 +681,38 @@ function getXsAtY(targetY: number, poly: Point[]): number[] {
     return intersections;
 }
 
+/**
+ * Simplified Delta Curve Calculation
+ * directly compares the Reference Envelope polygon against the Study Vehicle polygon.
+ */
 function calculateDeltaCurvesIterative(
-    minY: number, maxY: number, 
+    minY: number, 
+    maxY: number, 
     envelope: Point[],
-    vehW: number, vehH: number,
-    pivot: Point,
-    rollStart: number, rollEnd: number,
-    cantMin: number, cantMax: number,
-    bounce: number, bounceYThreshold: number,
-    latBiasLeft: number, latBiasRight: number,
-    studyThrows: { left: number, right: number },
-    considerYRotation: boolean
+    studyPoly: Point[]
 ): DeltaCurveData {
     const result: DeltaCurveData = { y: [], deltaLeft: [], deltaRight: [] };
 
-    // Iterate through height in 10mm steps
+    // Iterate through height in 10mm steps up to maxY (Vehicle Height)
     for (let y = minY; y <= maxY; y += 10) {
         
+        // Get Reference Envelope Extents
         const envL = getXAtY(y, envelope, 'left');
         const envR = getXAtY(y, envelope, 'right');
 
-        // Check bounds for BOTH Min and Max cant to be safe/conservative
-        const bounds1 = getDynamicBoundsAtY(
-            y, vehW, vehH, pivot, 
-            rollStart, rollEnd, cantMin, 
-            bounce, bounceYThreshold, considerYRotation
-        );
-        const bounds2 = getDynamicBoundsAtY(
-            y, vehW, vehH, pivot, 
-            rollStart, rollEnd, cantMax, 
-            bounce, bounceYThreshold, considerYRotation
-        );
+        // Get Study Vehicle Extents
+        const studyL = getXAtY(y, studyPoly, 'left');
+        const studyR = getXAtY(y, studyPoly, 'right');
 
-        let minX = (bounds1.minX !== null && bounds2.minX !== null) ? Math.min(bounds1.minX, bounds2.minX) : (bounds1.minX ?? bounds2.minX);
-        let maxX = (bounds1.maxX !== null && bounds2.maxX !== null) ? Math.max(bounds1.maxX, bounds2.maxX) : (bounds1.maxX ?? bounds2.maxX);
-
-        if (minX === null || maxX === null) continue;
-
-        const studyL = minX + latBiasLeft + studyThrows.left;
-        const studyR = maxX + latBiasRight + studyThrows.right;
-
-        if (envL !== null && envR !== null) {
+        if (envL !== null && envR !== null && studyL !== null && studyR !== null) {
             result.y.push(y);
+            
+            // Delta = |Reference| - |Study|
+            // Positive = Clearance
+            // Negative = Interference
             const distLeft = Math.abs(envL) - Math.abs(studyL);
             const distRight = Math.abs(envR) - Math.abs(studyR);
+            
             result.deltaLeft.push(distLeft);
             result.deltaRight.push(distRight);
         }
