@@ -561,7 +561,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         // Roll around pivot
         const rolled = getRotatedCoords(p.x, p.y, rollStart, pivot.x, pivot.y);
         // Cant around 0,0
-        const canted = getRotatedCoords(rolled.x, rolled.y, nominalCant, 0, 0);
+        const canted = getRotatedCoords(rolled.x, rolled.y, nominalCant, cantPivot.x, cantPivot.y);
         return toPoint64({ x: canted.x, y: params.considerYRotation ? canted.y : p.y });
     });
     
@@ -569,7 +569,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
         // Roll around pivot
         const rolled = getRotatedCoords(p.x, p.y, rollEnd, pivot.x, pivot.y);
         // Cant around 0,0
-        const canted = getRotatedCoords(rolled.x, rolled.y, nominalCant, 0, 0);
+        const canted = getRotatedCoords(rolled.x, rolled.y, nominalCant, cantPivot.x, cantPivot.y);
         return toPoint64({ x: canted.x, y: params.considerYRotation ? canted.y : p.y });
     });
 
