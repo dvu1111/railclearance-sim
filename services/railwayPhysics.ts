@@ -454,21 +454,28 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
     let checkRotation: boolean = (params.considerYRotation) ? ((Math.abs(rollStart) > 0 || Math.abs(rollEnd) > 0) ? false : true) : true;
     
+    // --- UPDATED PIPELINE: ROLL -> LATERAL -> CANT ---
+    // This ordering ensures that the Lateral Shift (Throw/Play) contributes to the "Arcing Space"
+    // during the Cant rotation. By shifting first, we effectively adjust the points of the
+    // body outwards, increasing the lever arm for the Cant rotation.
+
     // 4. Generate Body Roll Envelope (Sweeping around Roll Center)
     const rollBodyPaths = generateRotationalSweep(bouncedShape, rollStart, rollEnd, pivot, !checkRotation);
 
-    // 5. Apply Cant Rotation (Sweeping entire body around Track Center)
-    // We sweep from cantMin to cantMax to ensure arcing path (swept corners) is included.
-    const rotPaths = applyRotationalSweepToPaths(
-        rollBodyPaths, 
+    // 5. Apply Lateral Sweep (Widening the body based on Throws + Lat Play)
+    // We apply this BEFORE Cant rotation to capture the arcing effect.
+    // This creates a "Widened Body" that represents all possible lateral positions.
+    const latSweptPaths = applyLateralSweep(rollBodyPaths, totalMinLat, totalMaxLat, checkRotation);
+
+    // 6. Apply Cant Rotation (Sweeping the Widened Body around Track Center)
+    // Since the body is now widened, the Cant rotation will correctly generate the arcing envelope at the corners.
+    let solution = applyRotationalSweepToPaths(
+        latSweptPaths, 
         cantMin, 
         cantMax, 
         TRACK_CENTER, 
         params.considerYRotation
     );
-
-    // 6. Generate Full Kinematic Envelope (Lateral Sweep)
-    let solution = applyLateralSweep(rotPaths, totalMinLat, totalMaxLat, checkRotation);
     
     // FAILSAFE MERGE
     if (solution.length > 1) {
@@ -512,17 +519,16 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     const studyMinLat = latBiasLeft + studyThrows.left;
     const studyMaxLat = latBiasRight + studyThrows.right;
 
-    // Study Vehicle: Roll Sweep -> Cant Sweep -> Lateral Sweep
+    // Study Vehicle: Roll Sweep -> Lateral Sweep -> Cant Sweep
     const studyRollPaths = generateRotationalSweep(bouncedStudyBox, rollStart, rollEnd, pivot, !checkRotation);
-    const studyRotPaths = applyRotationalSweepToPaths(
-        studyRollPaths,
+    const studyLatPaths = applyLateralSweep(studyRollPaths, studyMinLat, studyMaxLat, checkRotation);
+    let studySolution = applyRotationalSweepToPaths(
+        studyLatPaths,
         cantMin,
         cantMax,
         TRACK_CENTER,
         params.considerYRotation
     );
-
-    let studySolution = applyLateralSweep(studyRotPaths, studyMinLat, studyMaxLat, checkRotation);
     
     if (studySolution.length > 1) {
         studySolution = Clipper.union(studySolution, FillRule.NonZero);
