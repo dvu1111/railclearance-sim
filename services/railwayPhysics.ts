@@ -604,14 +604,63 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
     // 10. Delta Curve (Clearance Graph)
     // Refactored to use the computed polygons instead of re-simulating physics
-    const studyPoly: Point[] = dynamicStudyX.map((x, i) => ({ x, y: dynamicStudyY[i] }));
-    const maxCalcY = params.h + tols.bounce;
+    
+    // --- GRAPH FIX: Calculate full-height Study Vehicle Polygon for Graph ---
+    // This allows the graph to show deltas up to the reference outline height, 
+    // even if the user has defined a short study vehicle (params.h).
+    
+    const refYs = rawPointsRight.map(p => p.y);
+    const maxRefY = Math.max(...refYs) + tols.bounce;
+    const graphH = Math.max(params.h + tols.bounce, maxRefY);
+
+    const studyBoxGraph: Point[] = [
+        { x: -halfW, y: 0 }, { x: halfW, y: 0 },
+        { x: halfW, y: graphH }, { x: -halfW, y: graphH },
+        { x: -halfW, y: 0 }
+    ];
+
+    // Compute physics for graph box (Reuse logic from Step 7)
+    let studyBoxGraph64 = normalizePolygon(studyBoxGraph.map(toPoint64));
+    const cleanedStudyBoxGraph = studyBoxGraph64.map(fromPoint64);
+    const bouncedStudyBoxGraph = cleanedStudyBoxGraph.map(p => {
+        let y = p.y;
+        if (p.y > params.bounceYThreshold) y += tols.bounce;
+        return { x: p.x, y };
+    });
+
+    const studyGraphRollPaths = generateRotationalSweep(bouncedStudyBoxGraph, rollStart, rollEnd, pivot, !checkRotation);
+    const studyGraphLatPaths = applyLateralSweep(studyGraphRollPaths, studyMinLat, studyMaxLat, checkRotation);
+    let studyGraphSolution = applyRotationalSweepToPaths(
+        studyGraphLatPaths,
+        cantMin,
+        cantMax,
+        cantPivot,
+        params.considerYRotation
+    );
+    if (studyGraphSolution.length > 1) studyGraphSolution = Clipper.union(studyGraphSolution, FillRule.NonZero);
+
+    // Convert Graph Solution to Polygon
+    const graphStudyX: number[] = [];
+    const graphStudyY: number[] = [];
+    if (studyGraphSolution.length > 0) {
+        const outer = studyGraphSolution.reduce((p, c) => c.length > p.length ? c : p, []);
+        outer.forEach(pt => {
+            const p = fromPoint64(pt);
+            graphStudyX.push(p.x);
+            graphStudyY.push(p.y);
+        });
+        if (graphStudyX.length > 0) {
+            graphStudyX.push(graphStudyX[0]);
+            graphStudyY.push(graphStudyY[0]);
+        }
+    }
+    const studyPolyGraph: Point[] = graphStudyX.map((x, i) => ({ x, y: graphStudyY[i] }));
 
     const deltaGraphData = calculateDeltaCurvesIterative(
         0, 
-        maxCalcY, 
+        graphH, 
         envelopePoly,
-        studyPoly
+        studyPolyGraph // Use extended polygon
     );
 
     // 11. Status
