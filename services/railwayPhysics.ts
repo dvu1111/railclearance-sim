@@ -6,7 +6,6 @@ import { Clipper, Path64, Point64, FillRule, Paths64 } from "../lib/clipper2-ts/
 const CLIPPER_SCALE = 1000;
 const PIVOT_DEFAULT = { x: 0, y: 1100 };
 const TOLERANCE = 0.1; // 0.1 mm tolerance for boundary checks
-const HALF_GAUGE = 533.5;
 
 
 function radians(deg: number) { return deg * Math.PI / 180; }
@@ -456,7 +455,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
     let checkRotation: boolean = (params.considerYRotation) ? ((Math.abs(rollStart) > 0 || Math.abs(rollEnd) > 0) ? false : true) : true;
     
     // --- UPDATED PIPELINE: ROLL -> LATERAL -> CANT ---
-    // This ordering ensures that the Lateral Shift (Throw/Play) contributes to the "Arcing Space"
+    // This ordering ensures that the Lateral Shift (Throw + Play) contributes to the "Arcing Space"
     // during the Cant rotation. By shifting first, we effectively adjust the points of the
     // body outwards, increasing the lever arm for the Cant rotation.
 
@@ -471,7 +470,7 @@ export function calculateEnvelope(params: SimulationParams): SimulationResult {
 
     // CW (Right Turn) -> Right Rail is Inner/Low -> Pivot is +X
     // CCW (Left Turn) -> Left Rail is Inner/Low -> Pivot is -X
-    const cantPivotX = isCW ? HALF_GAUGE : -HALF_GAUGE;
+    const cantPivotX = isCW ? params.half_gauge : -params.half_gauge;
     const cantPivot = { x: cantPivotX, y: 0 };
 
     // 6. Apply Cant Rotation (Sweeping the Widened Body around Track Center)
@@ -790,7 +789,7 @@ function calculateStudyPoints(
     const h_bounced = params.h + ((params.h - minY) / vHeight) * bounce; 
 
     // Determine cant pivot X based on direction
-    const cantPivotX = isCW ? HALF_GAUGE : -HALF_GAUGE;
+    const cantPivotX = isCW ? params.half_gauge : -params.half_gauge;
 
     (['right', 'left'] as const).forEach(side => {
         const isRight = side === 'right';

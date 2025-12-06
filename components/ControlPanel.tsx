@@ -48,6 +48,16 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, onUpdate, simulatio
           />
         </div>
 
+        <div className="flex items-center gap-2 mb-2">
+          <label className="font-bold text-gray-700 flex-1">Half Gauge [mm]</label>
+          <input
+            type="number"
+            value={params.half_gauge}
+            onChange={(e) => handleNum('half_gauge', e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1 w-24 text-right focus:ring-1 focus:ring-blue-500 outline-none"
+          />
+        </div>
+
         <div className="flex items-center gap-2">
           <label className="font-bold text-gray-700 flex-1">Applied Cant [mm]</label>
           <input

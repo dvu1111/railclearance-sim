@@ -5,6 +5,7 @@ import { calculateEnvelope } from '../services/railwayPhysics.ts';
 
 const DEFAULT_PARAMS: SimulationParams = {
     radius: 100,
+    half_gauge: 533.5, // Default value
     L_veh: 21000,
     B_veh: 15850,
     h: 400,

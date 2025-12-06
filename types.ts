@@ -22,6 +22,7 @@ export interface ToleranceSet {
 export interface SimulationParams {
   // Radius
   radius: number; // meters
+  half_gauge: number; // mm - distance from center to rail head
 
   // Vehicle Dimensions (for Throw Calculation)
   L_veh: number;
